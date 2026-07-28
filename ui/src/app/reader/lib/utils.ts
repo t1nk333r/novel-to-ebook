@@ -43,12 +43,14 @@ export function getCSS({
     }
     html, body {
       padding: ${padding};
-      font-size: ${fontSize}px !important;
-      font-weight: ${fontWeight};
-      font-family: ${fontFamily} !important;
       -webkit-text-size-adjust: none;
       text-size-adjust: none;
       background: ${theme?.[colorScheme]?.background || "#222"}; 
+    }
+    * {
+      font-size: ${fontSize}px !important;
+      font-weight: ${fontWeight};
+      font-family: ${fontFamily} !important;
       color: ${theme?.[colorScheme]?.color || "#fff"};
     }
     a:link {

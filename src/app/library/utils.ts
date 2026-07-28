@@ -76,50 +76,54 @@ export async function scanLibrary(
           let cover: string | null = null;
           let coverHash: string | null = null;
 
-          if (entry.name.endsWith(".epub")) {
-            const epub = new EPub(fullPath);
-            await epub.parse();
-            metadata = epub.metadata as never;
+          try {
+            if (entry.name.endsWith(".epub")) {
+              const epub = new EPub(fullPath);
+              await epub.parse();
+              metadata = epub.metadata as never;
 
-            const coverId = (epub.metadata as any).cover;
-            if (coverId) {
+              const coverId = (epub.metadata as any).cover;
+              if (coverId) {
+                try {
+                  const image = await epub.getImage(coverId);
+                  const coverData = await compressImage(image.data, 256);
+
+                  getCover = async () => ({
+                    data: coverData,
+                    mimeType: "image/webp",
+                  });
+                  cover = getCoverUrl(key);
+                  coverHash = await createBlurHash(image.data);
+                } catch (err) {
+                  console.error(err);
+                }
+              }
+            }
+
+            if (entry.name.endsWith(".pdf")) {
+              const coverImg = await pdfToImg(fullPath, {
+                pages: "firstPage",
+                imgType: "jpg",
+              });
+              const coverBuf = Buffer.from(
+                coverImg.replace("data:image/jpeg;base64,", ""),
+                "base64",
+              );
+
               try {
-                const image = await epub.getImage(coverId);
-                const coverData = await compressImage(image.data, 256);
-
+                const coverData = await compressImage(coverBuf, 256);
                 getCover = async () => ({
                   data: coverData,
                   mimeType: "image/webp",
                 });
                 cover = getCoverUrl(key);
-                coverHash = await createBlurHash(image.data);
+                coverHash = await createBlurHash(coverData);
               } catch (err) {
                 console.error(err);
               }
             }
-          }
-
-          if (entry.name.endsWith(".pdf")) {
-            const coverImg = await pdfToImg(fullPath, {
-              pages: "firstPage",
-              imgType: "jpg",
-            });
-            const coverBuf = Buffer.from(
-              coverImg.replace("data:image/jpeg;base64,", ""),
-              "base64",
-            );
-
-            try {
-              const coverData = await compressImage(coverBuf, 256);
-              getCover = async () => ({
-                data: coverData,
-                mimeType: "image/webp",
-              });
-              cover = getCoverUrl(key);
-              coverHash = await createBlurHash(coverData);
-            } catch (err) {
-              console.error(err);
-            }
+          } catch (err) {
+            console.log("Err reading file!", entry.name, err);
           }
 
           return {
