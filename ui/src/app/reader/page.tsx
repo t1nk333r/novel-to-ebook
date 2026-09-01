@@ -19,11 +19,15 @@ import Overlay from "./components/overlay";
 import Footer from "./components/footer";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  createLoadCoordinator,
+  type LoadGeneration,
+} from "./lib/reader-load-coordinator";
 
 export default function ReaderPage() {
   const containerRef = useRef<HTMLDivElement>(null!);
   const viewRef = useRef<FoliateView | null>(null);
-  const loadingRef = useRef(false);
+  const loadCoordinatorRef = useRef(createLoadCoordinator());
   const isRestoredRef = useRef(false);
   const overlayRef = useRef<OverlayRef>(null!);
 
@@ -31,6 +35,7 @@ export default function ReaderPage() {
   const bookKey = searchParams.get("book") || "";
   const [curBook, setCurBook] = useState<BookDoc | null>(null);
   const [curState, setCurState] = useState<BookRelocate | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const theme = useStore(appStore, (i) => i.theme);
   const settings = useStore(settingsStore);
 
@@ -84,34 +89,64 @@ export default function ReaderPage() {
   };
 
   useEffect(() => {
+    const container = containerRef.current;
+    const loadCoordinator = loadCoordinatorRef.current;
+
     document.addEventListener("keydown", onKeyDown);
-    containerRef.current?.addEventListener("wheel", onWheel);
+    container?.addEventListener("wheel", onWheel);
 
     return () => {
       document.removeEventListener("keydown", onKeyDown);
-      containerRef.current?.removeEventListener("wheel", onWheel);
+      container?.removeEventListener("wheel", onWheel);
+
+      // True unmount: no further load generation will start to close this
+      // out, so invalidate any in-flight load and close the installed view
+      // ourselves. `viewRef.current` is only ever assigned after its own
+      // `open()` has resolved (see `openDoc`), so it is never mid-open here.
+      loadCoordinator.dispose();
+      if (viewRef.current) {
+        viewRef.current.close();
+        container?.removeChild(viewRef.current);
+        viewRef.current = null;
+      }
     };
   }, []);
 
-  const openDoc = async (file: File) => {
-    if (viewRef.current) {
-      viewRef.current.close();
-      containerRef.current!.removeChild(viewRef.current);
-      viewRef.current = null;
-    } else {
-      // @ts-ignore
-      await import("@/lib/foliate-js/view.js");
-    }
+  // Builds and opens a new Foliate view *detached* from the DOM so opening it
+  // never races the currently-installed view's own close/open lifecycle.
+  // Only once `view.open()` has fully settled -- and only if `generation` is
+  // still current -- does this attach the new view and close/remove the old
+  // one. That way `close()` is never called on a view whose own `open()` is
+  // still in flight, for either the outgoing or the incoming view.
+  const openDoc = async (file: File, generation: LoadGeneration) => {
+    // @ts-ignore
+    await import("@/lib/foliate-js/view.js");
+    if (!generation.isCurrent()) return;
 
     const view = document.createElement("foliate-view") as FoliateView;
     view.style.width = "100%";
     view.style.height = "100%";
     view.style.display = "block";
-    viewRef.current = view;
-    containerRef.current.append(view);
 
     isRestoredRef.current = false;
     await view.open(file as unknown as BookDoc);
+
+    if (!generation.isCurrent()) {
+      // A newer key superseded this load while we were opening. Discard this
+      // view -- its own `open()` has settled, so closing it now is safe --
+      // without ever attaching it or touching the currently active view.
+      view.close();
+      return;
+    }
+
+    if (viewRef.current) {
+      viewRef.current.close();
+      containerRef.current?.removeChild(viewRef.current);
+    }
+    viewRef.current = view;
+    containerRef.current?.append(view);
+
+    const { book } = view;
 
     try {
       console.log("Fetching read progress..");
@@ -122,22 +157,25 @@ export default function ReaderPage() {
         throw new Error("No read progress found");
       }
 
+      if (!generation.isCurrent()) return;
       view.init({ lastLocation: lastLocation.cfi });
       setCurState(lastLocation);
     } catch (err) {
+      if (!generation.isCurrent()) return;
       view.renderer.next();
       setCurState({ fraction: 0 } as never);
       console.error(err);
     } finally {
       setTimeout(() => {
-        isRestoredRef.current = true;
+        if (generation.isCurrent()) isRestoredRef.current = true;
       }, 1000);
     }
+
+    if (!generation.isCurrent()) return;
 
     view.addEventListener("load", onDocLoad);
     view.addEventListener("relocate", (e) => onRelocate(e, book));
 
-    const { book } = view;
     setCurBook(book);
     view.renderer.setStyles?.(getCSS(styles));
 
@@ -149,25 +187,44 @@ export default function ReaderPage() {
 
     // enable animation
     view.renderer.setAttribute("animated", "true");
+
+    setIsLoading(false);
   };
 
   useEffect(() => {
+    const generation = loadCoordinatorRef.current.start();
+    setIsLoading(true);
+
     const fetchBook = async () => {
-      const file = await getBookData(bookKey, (file) => {
-        toast.info("Book file changed!", {
-          action: <Button onClick={() => openDoc(file)}>Refresh</Button>,
+      try {
+        const file = await getBookData(bookKey, (file) => {
+          if (!generation.isCurrent()) return;
+          toast.info("Book file changed!", {
+            action: (
+              <Button onClick={() => openDoc(file, generation)}>
+                Refresh
+              </Button>
+            ),
+          });
         });
-      });
-      if (!file) throw new Error("Cannot find book file!");
-      openDoc(file);
+        if (!generation.isCurrent()) return;
+        if (!file) throw new Error("Cannot find book file!");
+        await openDoc(file, generation);
+      } catch (err) {
+        if (!generation.isCurrent()) return;
+        console.error(err);
+        toast.error("Failed to load the book. Please try again.");
+        setIsLoading(false);
+      }
     };
 
-    if (!loadingRef.current) {
-      loadingRef.current = true;
-      fetchBook().finally(() => {
-        loadingRef.current = false;
-      });
-    }
+    fetchBook();
+
+    // No cleanup needed here: `start()` already invalidates and aborts the
+    // previous generation the moment `bookKey` changes (see
+    // `createLoadCoordinator`), so a stale load can never mutate state past
+    // that point. True unmount is handled separately below, since no further
+    // generation will start there to supersede the active one.
   }, [bookKey]);
 
   useEffect(() => {
@@ -185,7 +242,7 @@ export default function ReaderPage() {
 
   return (
     <div className="bg-background h-screen-dvh overflow-hidden flex flex-row items-stretch relative">
-      {!curState && (
+      {isLoading && (
         <div className="absolute inset-0 bg-background/60 text-foreground w-full h-full z-5 flex flex-col gap-2 items-center justify-center">
           <Loader2 className="animate-spin" size={32} />
           <span>Please wait...</span>
