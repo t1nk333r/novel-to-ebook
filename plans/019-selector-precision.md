@@ -119,9 +119,13 @@ commented-out line at `utils.ts:93` and `return parts.join(" ")` at `utils.ts:94
    `utils.ts:93` / `utils.ts:290` is the child combinator that would scope it.
 2. **Positional disambiguation only on the deepest segment.** The condition
    `siblings.length > 1 && parts.length === 0` is true only on the first
-   iteration, because `parts` is non-empty on every later one. Every ancestor
-   segment is therefore emitted with no `:nth-of-type`, so an ancestor like
-   `div.chapter` that appears five times stays ambiguous.
+   iteration, because `parts` is non-empty on every later one. The clicked
+   element itself is therefore disambiguated, but every **ancestor** segment is
+   emitted bare, so an ancestor like `div.chapter` that appears three times stays
+   ambiguous. Measured 2026-09-01: a target under a 3×-repeated `div.chapter`
+   yields `div.chapter div.body p`, which matches **3** elements. This is the
+   primary defect; combined with defect 1 it is what makes the picker
+   "select too much".
 3. **No uniqueness check.** The function never calls `doc.querySelectorAll(sel)`
    to confirm the result resolves back to `el`. It returns whatever it built.
 4. **Class list truncated to two** (`.slice(0, 2)`). Two classes are often not
@@ -194,9 +198,25 @@ and `doc.querySelector(selector) === target`**:
    must still return a selector and must not throw; assert it returns a non-empty
    string.
 
-**Verify**: `pnpm test -- selector` → tests run and **fail** on cases 2, 3, and 4.
-Record which fail. If case 2 passes before any change, STOP and report — the
-algorithm is not what this plan describes.
+**Verify**: `pnpm test -- selector` → tests run. **Case 2 passes** against the
+unmodified algorithm and **case 3 fails**. Record which fail.
+
+Expected baseline, measured against the current code on 2026-09-01:
+
+| Case | Current output | Matches | Status today |
+|---|---|---:|---|
+| 2 — one `p` of five flat siblings in `div.article` | `div.article p:nth-of-type(3)` | 1 | already correct |
+| 3 — target under an ancestor `div.chapter` occurring 3× | `div.chapter div.body p` | **3** | **the defect** |
+
+Case 2 passes because the `parts.length === 0` condition is true on the first
+(deepest) loop iteration, so the clicked element itself *does* get
+`:nth-of-type`. Keep case 2 anyway — it is the regression guard that your
+rewrite must not break. Case 3 is the actual target of this plan: the ambiguous
+**ancestor** gets no disambiguation, and the descendant combinator then widens
+the match to every `p` under any `div.chapter`.
+
+If case 3 passes before any change, STOP and report — the algorithm is not what
+this plan describes.
 
 ### Step 2: Make the algorithm resolve to exactly one element
 
@@ -276,7 +296,8 @@ Stop and report back (do not improvise) if:
 
 - The code at `utils.ts:56-94` or `utils.ts:255-291` does not match the excerpts
   above.
-- Step 1's case 2 passes before you change anything.
+- Step 1's case 3 passes before you change anything (case 2 passing is expected
+  and documented — do not stop for it).
 - You conclude the two copies should be merged into one shared function — read
   the CRITICAL CONSTRAINT again; if you still believe it, stop and report rather
   than doing it.

@@ -26,14 +26,23 @@ it was implemented:
   `(await getLastIndex(projectId)) + 1` outside any transaction, then inserts.
 - `src/app/projects/chapters/repository.ts:27` still allocates `lastIndex` once
   before the import loop and increments it in memory.
-- `reorderChapters` at `repository.ts:87-100` is unchanged.
 
-All four done criteria remain unmet. Its dependency, plan 013, **is** genuinely
+**Correction (2026-09-01):** an earlier revision of this section claimed
+`reorderChapters` was unchanged. That was wrong — it was written from a truncated
+`grep` that showed only the `caseSql` builder. `reorderChapters`
+(`repository.ts:87-104`) **already** wraps its updates in `db.transaction()`,
+applies a `+1000000` offset before the CASE update to avoid transient collisions,
+and validates that the supplied ids are exactly the project's chapter set.
+Treat step 4 as **review-and-confirm**, not rewrite: verify that the existing
+implementation is still correct once the unique `(projectId, index)` index exists,
+and leave it alone if it is. Do not redo this work.
+
+Three of the four done criteria remain unmet. Its dependency, plan 013, **is** genuinely
 complete (`chapters/routes.ts:169` now validates with
 `ChapterSchema.pick({ title: true, content: true }).partial()`), so this plan is
 executable now.
 
-Additional debris found in scope: `repository.ts:48` contains a stray
+Additional debris found in scope: `repository.ts:50` contains a stray
 `console.log("test")`. Remove it as part of this work.
 
 ## Why this matters

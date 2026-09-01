@@ -85,8 +85,12 @@ installs Bun 1.4.0 and runs `pnpm check`, so the gate is real there.
 - 008 → partial. Limits and Zod maxima landed; `src/lib/bounded-executor.ts` is an
   orphan with no importer, so no concurrency slot exists. Step 3 only.
 - 010 → not done. `src/lib/browser.ts:192-197` still clicks instead of removing.
-- 014 → not done. No forward migration, no `(projectId, index)` uniqueness, and
-  allocation is still `getLastIndex() + 1` outside a transaction.
+- 014 → mostly not done. No forward migration, no `(projectId, index)`
+  uniqueness, and allocation is still `getLastIndex() + 1` outside a transaction.
+  **Corrected 2026-09-01:** this entry originally said `reorderChapters` was
+  unchanged. It is not — `repository.ts:87-104` already has a transaction, a
+  `+1000000` offset, and id validation. The original claim came from a truncated
+  `grep -A6` that never showed those lines.
 
 **Refreshed TODOs** (findings re-verified, excerpts still accurate, no drift):
 
