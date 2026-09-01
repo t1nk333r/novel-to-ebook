@@ -12,6 +12,12 @@ import { HTTPError } from "../../lib/error";
 import { getLibrary, rescanLibrary } from "./context";
 import z from "zod";
 import db from "../../db";
+import fs from "fs/promises";
+import {
+  buildValidators,
+  contentTypeForName,
+  isNotModified,
+} from "./file-validators";
 
 const router = new Hono();
 
@@ -72,6 +78,7 @@ router.get(
         schema: GetLibraryResponseSchema,
         mediaType: "application/epub+zip",
       },
+      304: { description: "Not modified" },
     },
   }),
   async (c) => {
@@ -81,11 +88,33 @@ router.get(
       throw new HTTPError("Library item not found", { status: 404 });
     }
 
+    // Identity comes from stat size/mtime only -- never read the file just
+    // to compare it, that would defeat the point of a conditional request.
+    const stat = await fs.stat(item.fullPath);
+    const validators = buildValidators(stat);
+
+    if (
+      isNotModified(
+        {
+          ifNoneMatch: c.req.header("if-none-match"),
+          ifModifiedSince: c.req.header("if-modified-since"),
+        },
+        validators,
+      )
+    ) {
+      return c.body(null, 304, {
+        ETag: validators.etag,
+        "Last-Modified": validators.lastModified,
+      });
+    }
+
     const file = Bun.file(item.fullPath);
     return new Response(file, {
       headers: {
-        "Content-Type": "application/epub+zip",
+        "Content-Type": contentTypeForName(item.name),
         "Content-Disposition": `attachment; filename="${item.name}"`,
+        ETag: validators.etag,
+        "Last-Modified": validators.lastModified,
       },
     });
   },

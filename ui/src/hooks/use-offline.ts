@@ -1,6 +1,6 @@
 import { $api, API_URL } from "@/lib/api";
 import type { paths } from "@/lib/api.schema";
-import { getDB } from "@/lib/db";
+import { getDB, type CachedBook } from "@/lib/db";
 import { useEffect, useState } from "react";
 
 function createApiCacheKey(method: string, path: string, options?: any) {
@@ -81,29 +81,55 @@ export async function getOfflineImage(
   }
 }
 
-async function fetchBook(key: string) {
-  try {
-    const res = await fetch(
-      API_URL + "/library/get?key=" + encodeURIComponent(key),
-    );
-    if (!res.ok) throw new Error(res.statusText);
+type FetchBookResult =
+  | { status: "fresh"; record: CachedBook }
+  | { status: "not-modified" };
 
-    const buf = await res.arrayBuffer();
-    const disposition = res.headers.get("content-disposition");
-    const filename = disposition
-      ? disposition.split("filename=")[1]?.replace(/"/g, "")
-      : "book.epub";
-    const file = new File([buf], filename, {
-      type: "application/epub+zip",
-    });
-
-    // store for offline usage
-    await getDB().then((db) => db.put("books", file, key));
-
-    return file;
-  } catch (err) {
-    throw err;
+/**
+ * Fetch a book from the server. When `conditional` validators are given and
+ * the server confirms nothing changed, this resolves without ever reading a
+ * response body (a 304 short-circuit) instead of always downloading the
+ * whole file.
+ */
+async function fetchBook(
+  key: string,
+  conditional?: { etag: string | null; lastModified: string | null },
+): Promise<FetchBookResult> {
+  const headers: Record<string, string> = {};
+  if (conditional?.etag) headers["If-None-Match"] = conditional.etag;
+  if (conditional?.lastModified) {
+    headers["If-Modified-Since"] = conditional.lastModified;
   }
+
+  const res = await fetch(
+    API_URL + "/library/get?key=" + encodeURIComponent(key),
+    Object.keys(headers).length ? { headers } : undefined,
+  );
+
+  if (res.status === 304) {
+    return { status: "not-modified" };
+  }
+
+  if (!res.ok) throw new Error(res.statusText);
+
+  const buf = await res.arrayBuffer();
+  const disposition = res.headers.get("content-disposition");
+  const filename = disposition
+    ? disposition.split("filename=")[1]?.replace(/"/g, "")
+    : "book.epub";
+  const contentType = res.headers.get("content-type") || "application/epub+zip";
+  const file = new File([buf], filename, { type: contentType });
+
+  const record: CachedBook = {
+    file,
+    etag: res.headers.get("etag"),
+    lastModified: res.headers.get("last-modified"),
+  };
+
+  // store for offline usage
+  await getDB().then((db) => db.put("books", record, key));
+
+  return { status: "fresh", record };
 }
 
 export async function getBookData(
@@ -111,16 +137,29 @@ export async function getBookData(
   onFileChanged?: (file: File) => void,
 ) {
   const cached = await getDB().then((db) => db.get("books", key));
-  const promise = fetchBook(key);
 
   if (cached) {
-    promise.then((file) => {
-      if (file.size !== cached.size) {
-        onFileChanged?.(file);
-      }
-    });
-    return cached;
+    // Return the cache immediately, then refresh in the background with a
+    // conditional request. This never blocks the caller and must never
+    // throw an unhandled rejection -- that's exactly the offline path the
+    // cache exists to serve.
+    fetchBook(key, { etag: cached.etag, lastModified: cached.lastModified })
+      .then((result) => {
+        if (result.status === "fresh") {
+          onFileChanged?.(result.record.file);
+        }
+      })
+      .catch((err) => {
+        console.warn("Background book refresh failed (offline?)", err);
+      });
+
+    return cached.file;
   }
 
-  return promise;
+  const result = await fetchBook(key);
+  if (result.status === "not-modified") {
+    // Can't happen without conditional headers, but keep TS/callers honest.
+    throw new Error("Unexpected 304 response for an uncached book");
+  }
+  return result.record.file;
 }
