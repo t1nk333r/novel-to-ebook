@@ -56,42 +56,60 @@ export function extractElements(ignoreDuplicates = false) {
   ];
 
   function getSelector(el: HTMLElement, doc: Document) {
-    const parts = [];
+    const parts: string[] = [];
     let current: HTMLElement | null = el;
+    let best = "";
 
     let depth = 0;
     while (current && current !== doc.body && depth < 10) {
       depth++;
       let seg = current.tagName.toLowerCase();
+      let stop = false;
       if (current.id) {
         seg += `#${current.id}`;
-        parts.unshift(seg);
-        break;
-      }
-      const classes = Array.from(current.classList)
-        .filter((c) => {
-          return !c.match(/^\d/) && c.length < 24 && !c.match(/\d{6,}/);
-        })
-        .slice(0, 2)
-        .join(".");
-      if (classes) seg += `.${classes}`;
-      const siblings = current.parentElement
-        ? Array.from(current.parentElement.children).filter(
-            (c) =>
-              c.tagName === current?.tagName &&
-              (!current.classList.length ||
-                c.classList.contains(current.classList[0]!)),
-          )
-        : [];
-      if (siblings.length > 1 && parts.length === 0) {
-        seg += `:nth-of-type(${siblings.indexOf(current) + 1})`;
+        stop = true;
+      } else {
+        const classes = Array.from(current.classList)
+          .filter((c) => {
+            return !c.match(/^\d/) && c.length < 24 && !c.match(/\d{6,}/);
+          })
+          .slice(0, 3)
+          .join(".");
+        if (classes) seg += `.${classes}`;
+        const siblings = current.parentElement
+          ? Array.from(current.parentElement.children).filter(
+              (c) =>
+                c.tagName === current?.tagName &&
+                (!current.classList.length ||
+                  c.classList.contains(current.classList[0]!)),
+            )
+          : [];
+        if (siblings.length > 1) {
+          seg += `:nth-of-type(${siblings.indexOf(current) + 1})`;
+        }
       }
       parts.unshift(seg);
+
+      const candidate = parts.join(" > ");
+      best = candidate;
+
+      try {
+        if (
+          doc.querySelectorAll(candidate).length === 1 &&
+          doc.querySelector(candidate) === el
+        ) {
+          return candidate;
+        }
+      } catch {
+        // malformed selector (e.g. CSS-special characters in a class name) —
+        // treat as non-unique and keep walking
+      }
+
+      if (stop) break;
       current = current.parentElement;
     }
 
-    // return parts.join(" > ");
-    return parts.join(" ");
+    return best;
   }
 
   for (const tag of tags) {
@@ -253,42 +271,60 @@ export async function fetchImage(url: string, outDir: string) {
 }
 
 export function getSelector(el: HTMLElement, doc: Document) {
-  const parts = [];
+  const parts: string[] = [];
   let current: HTMLElement | null = el;
+  let best = "";
 
   let depth = 0;
   while (current && current !== doc.body && depth < 10) {
     depth++;
     let seg = current.tagName.toLowerCase();
+    let stop = false;
     if (current.id) {
       seg += `#${current.id}`;
-      parts.unshift(seg);
-      break;
-    }
-    const classes = Array.from(current.classList)
-      .filter((c) => {
-        return !c.match(/^\d/) && c.length < 24 && !c.match(/\d{6,}/);
-      })
-      .slice(0, 2)
-      .join(".");
-    if (classes) seg += `.${classes}`;
-    const siblings = current.parentElement
-      ? Array.from(current.parentElement.children).filter(
-          (c) =>
-            c.tagName === current?.tagName &&
-            (!current.classList.length ||
-              c.classList.contains(current.classList[0]!)),
-        )
-      : [];
-    if (siblings.length > 1 && parts.length === 0) {
-      seg += `:nth-of-type(${siblings.indexOf(current) + 1})`;
+      stop = true;
+    } else {
+      const classes = Array.from(current.classList)
+        .filter((c) => {
+          return !c.match(/^\d/) && c.length < 24 && !c.match(/\d{6,}/);
+        })
+        .slice(0, 3)
+        .join(".");
+      if (classes) seg += `.${classes}`;
+      const siblings = current.parentElement
+        ? Array.from(current.parentElement.children).filter(
+            (c) =>
+              c.tagName === current?.tagName &&
+              (!current.classList.length ||
+                c.classList.contains(current.classList[0]!)),
+          )
+        : [];
+      if (siblings.length > 1) {
+        seg += `:nth-of-type(${siblings.indexOf(current) + 1})`;
+      }
     }
     parts.unshift(seg);
+
+    const candidate = parts.join(" > ");
+    best = candidate;
+
+    try {
+      if (
+        doc.querySelectorAll(candidate).length === 1 &&
+        doc.querySelector(candidate) === el
+      ) {
+        return candidate;
+      }
+    } catch {
+      // malformed selector (e.g. CSS-special characters in a class name) —
+      // treat as non-unique and keep walking
+    }
+
+    if (stop) break;
     current = current.parentElement;
   }
 
-  // return parts.join(" > ");
-  return parts.join(" ");
+  return best;
 }
 
 function getDepth(el: HTMLElement) {
