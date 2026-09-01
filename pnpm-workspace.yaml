@@ -1,3 +1,19 @@
-onlyBuiltDependencies:
-  - canvas
-  - sharp
+packages:
+  - ui
+
+allowBuilds:
+  # Denied: its only install-time script is a no-op echo, and the published
+  # tarball already ships dist/. Nothing needs to run at install time.
+  "@google/genai": false
+  better-sqlite3: true
+  canvas: true
+  ejs: false
+  esbuild: true
+  msw: false
+  protobufjs: true
+  puppeteer: true
+  sharp: true
+
+overrides:
+  fast-xml-parser: ">=5.5.6"
+  protobufjs: ">=7.6.1"

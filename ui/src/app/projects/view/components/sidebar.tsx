@@ -147,7 +147,7 @@ function TableOfContents() {
 
 function ProjectDetails() {
   const { project } = useProjectContext();
-  const form = useForm({ resolver: zodResolver(projectDetailsSchema) });
+  const form = useForm<any>({ resolver: zodResolver(projectDetailsSchema as any) as any });
   const update = useUpdateProject(project.id);
   const exportProject = $api.useMutation("post", "/projects/{id}/export");
   const navigate = useNavigate();

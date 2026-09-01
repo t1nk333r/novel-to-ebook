@@ -12,6 +12,7 @@ import {
 import { streamSSE } from "hono/streaming";
 import { importQueue } from "./context";
 import { sql } from "kysely";
+import { limits } from "../../../lib/limits";
 
 const router = new Hono();
 
@@ -141,7 +142,7 @@ router.put(
     summary: "Reorder chapter",
     request: {
       param: z.object({ projectId: z.string() }),
-      json: z.object({ ids: z.number().array() }),
+      json: z.object({ ids: z.number().int().positive().array().max(10000) }),
     },
     responses: { 204: { description: "Chapters reordered" } },
   }),
@@ -163,7 +164,7 @@ router.put(
     summary: "Update chapter",
     request: {
       param: z.object({ projectId: z.string(), id: z.coerce.number() }),
-      json: ChapterSchema.partial(),
+      json: ChapterSchema.pick({ title: true, content: true }).partial(),
     },
     responses: { 200: ChapterSchema },
   }),
@@ -213,8 +214,11 @@ router.post(
     request: {
       param: z.object({ projectId: z.string() }),
       json: z.object({
-        links: z.object({ url: z.url(), title: z.string() }).array(),
-        delayMs: z.number().optional(),
+        links: z
+          .object({ url: z.url(), title: z.string().max(1_000) })
+          .array()
+          .max(limits.importLinks),
+        delayMs: z.number().int().min(0).max(limits.actionDelayMs).optional(),
       }),
     },
     responses: { 200: z.object({ taskId: z.uuid() }) },

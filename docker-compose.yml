@@ -1,0 +1,52 @@
+services:
+  storvi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: storvi:local
+    container_name: storvi
+    restart: unless-stopped
+
+    # Published on ALL host interfaces, so the app is reachable over Tailscale
+    # (http://100.68.180.101:3000) as well as any LAN the host is joined to.
+    # Storvi has no user accounts and its API drives a headless browser and
+    # spends AI quota, so anyone who can route to this port has full control.
+    # Restrict it with a Tailscale ACL or a host firewall rule, or switch back
+    # to "127.0.0.1:3000:3000" to make it local-only.
+    ports:
+      - "0.0.0.0:3000:3000"
+
+    environment:
+      # The container must bind 0.0.0.0 to be reachable through the published
+      # port. With the `ports` entry above open on all interfaces, this flag is
+      # a deliberate choice to run unauthenticated and rely on the surrounding
+      # network (Tailscale ACLs, host firewall) for access control — the
+      # process itself enforces nothing. Setting API_TOKEN below is the
+      # stronger option, but the web UI cannot send it yet (plan 004).
+      HOST: 0.0.0.0
+      PORT: "3000"
+      ALLOW_INSECURE_BIND: "1"
+      DATA_PATH: /app/data
+      DATABASE_URL: /app/storage/storvi.sqlite
+      # Optional. When set, every API request must send `Authorization: Bearer`
+      # — note the web UI does not yet attach it (plan 004 is incomplete).
+      API_TOKEN: ${API_TOKEN:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+
+    volumes:
+      # Your EPUB/PDF library. Read-write: exports are written back here.
+      - ./data:/app/data
+      # SQLite database, kept out of the image and out of the library folder.
+      - storvi-db:/app/storage
+
+    # Chromium needs more than the default 64MB of shared memory.
+    shm_size: "1gb"
+
+    # Puppeteer already launches with --no-sandbox; this restores the kernel
+    # sandbox syscalls Chromium needs rather than running the container
+    # privileged.
+    security_opt:
+      - seccomp:unconfined
+
+volumes:
+  storvi-db:

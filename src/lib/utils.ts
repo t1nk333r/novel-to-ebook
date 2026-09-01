@@ -3,8 +3,12 @@ import { GoogleGenAI } from "@google/genai";
 import { selectorExample, SelectorSchema } from "../app/projects/schema";
 import removeMd from "remove-markdown";
 
-// The client gets the API key from the environment variable `GEMINI_API_KEY`.
-const ai = new GoogleGenAI({});
+let ai: GoogleGenAI | null = null;
+
+function getAI() {
+  ai ??= new GoogleGenAI({});
+  return ai;
+}
 
 export async function generateSelectors(html: string, followUp?: string) {
   const prompts = [
@@ -30,7 +34,7 @@ export async function generateSelectors(html: string, followUp?: string) {
     });
   }
 
-  const response = await ai.models.generateContent({
+  const response = await getAI().models.generateContent({
     model: "gemini-2.5-flash",
     contents: prompts,
   });
@@ -43,7 +47,7 @@ export async function generateSelectors(html: string, followUp?: string) {
 }
 
 export async function translate(text: string, to = "en") {
-  const response = await ai.models.generateContent({
+  const response = await getAI().models.generateContent({
     model: "gemini-2.5-flash",
     contents: `Translate HTML to [${to.toUpperCase()}]:
     1. No Layout Changes: Keep all HTML tags exactly as they are. Translate only the text content inside.

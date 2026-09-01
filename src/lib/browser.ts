@@ -70,7 +70,7 @@ async function loopUntil(
   }
 
   let attempts = 0;
-  const maxAttempts = loopUntil.attempts || 3;
+  const maxAttempts = Math.min(loopUntil.attempts || 3, 20);
   let success = false;
 
   while (attempts < maxAttempts && !success) {

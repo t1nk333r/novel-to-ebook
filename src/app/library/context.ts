@@ -2,26 +2,31 @@ import { scanLibrary, type LibraryItems } from "./utils";
 
 let library: LibraryItems = [];
 let scanController: AbortController | null = null;
+let scanGeneration = 0;
 
 export async function rescanLibrary() {
+  let controller: AbortController | null = null;
+  let generation = 0;
   try {
     console.log("Scanning library...");
 
     scanController?.abort();
-    scanController = new AbortController();
+    controller = new AbortController();
+    generation = ++scanGeneration;
+    scanController = controller;
 
     const res = await scanLibrary([process.env.DATA_PATH || "./data"], {
-      signal: scanController.signal,
+      signal: controller.signal,
     });
 
-    scanController.signal.throwIfAborted();
-    library = res;
+    controller.signal.throwIfAborted();
+    if (generation === scanGeneration) library = res;
 
     console.log("Library scanned!");
   } catch (err) {
     console.error("Cannot scan library!", err);
   } finally {
-    scanController = null;
+    if (controller && scanController === controller) scanController = null;
   }
 }
 

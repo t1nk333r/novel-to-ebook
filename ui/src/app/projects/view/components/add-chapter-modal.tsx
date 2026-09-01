@@ -54,8 +54,8 @@ type CreateChapterBody = JsonBody<"/projects/{projectId}/chapters", "post">;
 export default function AddChapterModal() {
   const { project } = useProjectContext();
   const { open } = addChapterModal.useStore();
-  const form = useForm({
-    resolver: zodResolver(schema),
+  const form = useForm<any>({
+    resolver: zodResolver(schema as any) as any,
     defaultValues: { type: null },
   });
   const type = useWatch({ control: form.control, name: "type" });

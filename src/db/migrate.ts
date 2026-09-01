@@ -11,5 +11,6 @@ export async function runMigration() {
       },
     },
   });
-  migrator.migrateToLatest();
+  const { error } = await migrator.migrateToLatest();
+  if (error) throw error;
 }

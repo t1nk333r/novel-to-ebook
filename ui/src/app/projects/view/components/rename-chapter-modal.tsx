@@ -30,7 +30,7 @@ const schema = z.object({
 export default function RenameChapterModal() {
   const { project } = useProjectContext();
   const { open, data } = renameChapterModal.useStore();
-  const form = useForm({ resolver: zodResolver(schema) });
+  const form = useForm<any>({ resolver: zodResolver(schema as any) as any });
 
   const update = $api.useMutation(
     "put",

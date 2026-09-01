@@ -101,12 +101,15 @@ export default function Sidebar({ book, curState, onTocClick }: Props) {
             ) : null}
             <div className="flex-1">
               <p className="text-xs font-medium line-clamp-3">
-                {details?.metadata?.title}
+                {String(details?.metadata?.title || "")}
               </p>
               <p className="text-xs mt-0.5 text-muted-foreground">
-                {details?.metadata?.author ||
-                  details?.metadata?.creator ||
-                  details?.metadata?.publisher}
+                {String(
+                  details?.metadata?.author ||
+                    details?.metadata?.creator ||
+                    details?.metadata?.publisher ||
+                    "",
+                )}
               </p>
             </div>
           </div>

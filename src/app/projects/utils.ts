@@ -3,6 +3,7 @@ import * as cheerio from "cheerio";
 import { cleanHTML } from "../../lib/utils";
 import fs from "fs/promises";
 import path from "path";
+import { assertSafeOutboundUrl, readResponseBytes, safeFetch } from "../../lib/network-policy";
 import { JSDOM } from "jsdom";
 import { Readability } from "@mozilla/readability";
 import * as extractus from "@extractus/article-extractor";
@@ -197,6 +198,7 @@ export function getCleanHTML() {
 }
 
 export async function extractContent(page: Page, url: string, selectors: any) {
+  await assertSafeOutboundUrl(url);
   await page.goto(url, {
     waitUntil: "domcontentloaded",
     timeout: 30000,
@@ -221,12 +223,13 @@ export async function extractContent(page: Page, url: string, selectors: any) {
 }
 
 export async function fetchImage(url: string, outDir: string) {
-  const res = await fetch(url);
+  await assertSafeOutboundUrl(url);
+  const res = await safeFetch(url);
   if (!res.ok) {
     throw new Error(`Failed to fetch image: ${res.statusText}`);
   }
 
-  const buffer = await res.arrayBuffer();
+  const buffer = await readResponseBytes(res);
   const contentType = res.headers.get("content-type") || "image/jpeg";
   let ext = contentType.split("/")[1] || "";
   if (ext === "octet-stream") {
@@ -529,6 +532,7 @@ export async function tryExtractContent(
 ) {
   const fonts = extractFonts(page);
 
+  await assertSafeOutboundUrl(url);
   await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
   const [title, html] = await Promise.all([
     page.evaluate(() => document.title),
@@ -555,13 +559,11 @@ export async function tryExtractContent(
 
   while (
     (isObfuscated = detectObfuscatedContent(content)?.encrypted) &&
-    fontIdx < fontArr.length &&
-    fontIdx < 5 // max 5 attempts
+    fontIdx < Math.min(fontArr.length, 5)
   ) {
-    fontIdx++;
+    const font = fontArr[fontIdx++];
 
     try {
-      const font = fontArr[fontIdx];
       const res = await decryptTextFromFont([content], { fontUrl: font });
 
       if (res.map && res.result[0]) {

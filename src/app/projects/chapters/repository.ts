@@ -92,10 +92,13 @@ export async function reorderChapters(projectId: string, ids: number[]) {
     )}
   END`;
 
-  await db
-    .updateTable("project_chapters")
-    .set({ index: caseSql as never })
-    .where("id", "in", ids)
-    .where("projectId", "=", projectId)
-    .execute();
+  const chapters = await db.selectFrom("project_chapters").select("id").where("projectId", "=", projectId).execute();
+  const allowed = new Set(chapters.map((chapter) => chapter.id));
+  if (ids.length !== chapters.length || new Set(ids).size !== ids.length || ids.some((id) => !allowed.has(id))) {
+    throw new Error("Reorder ids must be unique chapters in this project");
+  }
+  await db.transaction().execute(async (trx) => {
+    await trx.updateTable("project_chapters").set({ index: sql`index + 1000000` as never }).where("projectId", "=", projectId).execute();
+    await trx.updateTable("project_chapters").set({ index: caseSql as never }).where("projectId", "=", projectId).execute();
+  });
 }

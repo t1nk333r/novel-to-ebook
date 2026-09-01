@@ -31,8 +31,15 @@ import path from "path";
 import db from "../../db";
 import chapters from "./chapters/routes";
 import { HTTPError } from "../../lib/error";
+import { resolveExportDestination } from "../../lib/export-path";
+import { limits } from "../../lib/limits";
+import { assertSafeOutboundUrl } from "../../lib/network-policy";
 import fs from "fs";
 import type { ProjectConfig } from "./types";
+import {
+  startPeriodicTask,
+  type PeriodicTaskStop,
+} from "../../lib/periodic-task";
 
 const router = new Hono();
 
@@ -75,7 +82,10 @@ router.get(
       .selectAll()
       .orderBy("updatedAt", "desc")
       .execute();
-    return c.var.res(res);
+    return c.var.res(res.map((project) => ({
+      ...project,
+      config: project.config ? JSON.parse(project.config) : null,
+    })));
   },
 );
 
@@ -136,30 +146,28 @@ router.put(
     const values = c.req.valid("json");
 
     // Partial config update
+    let mergedConfig = values.config;
     if (values.config) {
       const curData = await db
         .selectFrom("projects")
         .select("config")
         .where("id", "=", id)
         .executeTakeFirstOrThrow();
-
       const curConfig = curData.config ? JSON.parse(curData.config) : null;
-      values.config = JSON.stringify({
-        ...(curConfig || {}),
-        ...values.config,
-      });
+      mergedConfig = { ...(curConfig || {}), ...values.config };
     }
 
+    const dbValues = { ...values, config: mergedConfig ? JSON.stringify(mergedConfig) : mergedConfig };
     const res = await db
       .updateTable("projects")
-      .set(values)
+      .set(dbValues)
       .where("id", "=", id)
       .returningAll()
       .executeTakeFirstOrThrow();
 
     return c.var.res({
       ...res,
-      config: values.config,
+      config: mergedConfig || null,
     });
   },
 );
@@ -260,18 +268,12 @@ router.post(
         content: c.content,
       }));
 
-      const outDir = path.join(
+      const destination = await resolveExportDestination(
         process.env.DATA_PATH || "./data",
-        config?.outDir || "",
+        project.title,
+        config?.outDir,
       );
-      const filename = project.title + ".epub";
-      const key = path
-        .join(config?.outDir || "", filename)
-        .replaceAll("\\", "/");
-
-      if (!fs.existsSync(outDir)) {
-        fs.mkdirSync(outDir, { recursive: true });
-      }
+      const { fullPath, key } = destination;
 
       cover = project.cover
         ? (await fetchImage(project.cover, "./img"))?.fullPath
@@ -294,7 +296,7 @@ router.post(
         contents,
       );
 
-      fs.writeFileSync(path.join(outDir, filename), epub);
+      fs.writeFileSync(fullPath, epub);
       setTimeout(rescanLibrary, 1000);
 
       return c.var.res({ key });
@@ -325,16 +327,18 @@ router.post(
 
     return streamSSE(c, async (s) => {
       let page: Page | null = null;
+      let stopScreenshots: PeriodicTaskStop | null = null;
 
       try {
         page = await newBrowserPage();
 
         const pageSize = {
-          width: Number(width) || 1280,
-          height: Number(height) || 800,
+          width: Math.min(Number(width) || 1280, limits.viewportDimension),
+          height: Math.min(Number(height) || 800, limits.viewportDimension),
         };
 
         await page.setViewport(pageSize);
+        await assertSafeOutboundUrl(url);
         await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
 
         const sendScreenshot = async (quality = 20, fullPage = false) => {
@@ -344,15 +348,11 @@ router.post(
             width: document.documentElement.scrollWidth,
             height: document.documentElement.scrollHeight,
           }));
-          pageSize.height = Math.min(
-            fullPageSize.height,
-            pageSize.height,
-            2400,
-          );
+          pageSize.height = Math.min(fullPageSize.height, pageSize.height, 2400);
 
           if (fullPage) {
             await page.evaluate(() => window.scrollTo(0, 0));
-            pageSize.height = fullPageSize.height;
+            pageSize.height = Math.min(fullPageSize.height, limits.viewportDimension);
           }
 
           const screenshot = await page.screenshot({
@@ -372,8 +372,6 @@ router.post(
           });
         };
 
-        let ssInterval: NodeJS.Timeout | null = null;
-
         if (body.blockList && body.blockList.length > 0) {
           await page.evaluate((list) => {
             for (const selector of list) {
@@ -388,12 +386,13 @@ router.post(
         if (actions) {
           await sendScreenshot();
 
-          ssInterval = setInterval(() => sendScreenshot(), 250);
+          stopScreenshots = startPeriodicTask(() => sendScreenshot(), 250);
           const acts = ActionSchema.array().parse(actions);
           await execActions(page, acts);
         }
 
-        ssInterval && clearInterval(ssInterval);
+        await stopScreenshots?.();
+        stopScreenshots = null;
         await sendScreenshot(70, isFullPage);
 
         // Projects element tree for selector building
@@ -420,6 +419,7 @@ router.post(
           data: JSON.stringify({ message: (err as Error).message }),
         });
       } finally {
+        await stopScreenshots?.();
         if (page) await page.close();
       }
     });

@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { limits } from "../../lib/limits";
+
+const boundedSelector = z.string().min(1).max(limits.selectorLength);
 
 export const SelectorSchema = z.object({
   title: z.string().min(1),
@@ -31,10 +34,10 @@ export const selectorExample: Selector = {
 export const LoopUntilSchema = z.object({
   repeat: z.boolean().nullish(),
   visible: z.boolean().nullish(),
-  selector: z.string(),
-  timeout: z.number().optional(),
-  attempts: z.number().optional(),
-  delay: z.number().optional(),
+  selector: boundedSelector,
+  timeout: z.number().int().min(1).max(limits.actionDelayMs).optional(),
+  attempts: z.number().int().min(1).max(limits.actionAttempts).optional(),
+  delay: z.number().int().min(0).max(limits.actionDelayMs).optional(),
 });
 
 const actionWithLoopUntil = z.object({
@@ -46,8 +49,8 @@ export type ActionWithLoopUntil = z.infer<typeof actionWithLoopUntil>;
 export const ClickActionSchema = actionWithLoopUntil.extend({
   type: z.literal("click"),
   data: z.object({
-    selector: z.string().min(1),
-    waitFor: z.number().optional(),
+    selector: boundedSelector,
+    waitFor: z.number().int().min(0).max(limits.actionDelayMs).optional(),
   }),
 });
 
@@ -71,25 +74,25 @@ export const WaitActionSchema = z.object({
         "selector",
       ])
       .optional(),
-    ms: z.number().optional(),
-    selector: z.string().optional(),
+    ms: z.number().int().min(0).max(limits.actionDelayMs).optional(),
+    selector: boundedSelector.optional(),
     visible: z.boolean().optional(),
-    timeout: z.number().optional(),
+    timeout: z.number().int().min(1).max(limits.actionDelayMs).optional(),
   }),
 });
 
 export const InputActionSchema = z.object({
   type: z.literal("input"),
   data: z.object({
-    selector: z.string(),
-    text: z.string(),
+    selector: boundedSelector,
+    text: z.string().max(limits.textLength),
   }),
 });
 
 export const BlockElementActionSchema = z.object({
   type: z.literal("block"),
   data: z.object({
-    selector: z.string(),
+    selector: boundedSelector,
   }),
 });
 
@@ -103,6 +106,11 @@ export const ActionSchema = z.union([
 
 export type Action = z.infer<typeof ActionSchema>;
 
+export const ProjectConfigSchema = z.object({
+  outDir: z.string().max(512).nullish(),
+  fontDecryptMap: z.record(z.string(), z.string()).nullish(),
+});
+
 ///////////////////////////
 
 export const ProjectSchema = z.object({
@@ -110,7 +118,7 @@ export const ProjectSchema = z.object({
   title: z.string(),
   author: z.string(),
   cover: z.string(),
-  config: z.any().nullish(),
+  config: ProjectConfigSchema.nullish(),
   language: z.string(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
@@ -133,13 +141,13 @@ export const UpdateProjectReqSchema = ProjectSchema.omit({
 
 export const SnapshotRequestSchema = z.object({
   url: z.string().min(1, { message: "url is required" }),
-  width: z.number().optional(),
-  height: z.number().optional(),
+  width: z.number().int().min(1).max(limits.viewportDimension).optional(),
+  height: z.number().int().min(1).max(limits.viewportDimension).optional(),
   isFullPage: z.boolean().optional(),
-  actions: z.array(ActionSchema).optional(),
+  actions: z.array(ActionSchema).max(limits.browserActions).optional(),
   anchorTextContains: z.boolean().optional(),
   ignoreDuplicates: z.boolean().optional(),
-  blockList: z.array(z.string()).optional(),
+  blockList: z.array(boundedSelector).max(limits.blockSelectors).optional(),
 });
 
 const extractRequestSelectors = z.object(
@@ -170,8 +178,8 @@ export const ExtractResponseSchema = z.object({
 });
 
 export const TranslateRequestSchema = z.object({
-  text: z.string().min(1, { message: "text is required" }),
-  to: z.string().optional(),
+  text: z.string().min(1, { message: "text is required" }).max(limits.textLength),
+  to: z.string().min(2).max(35).optional(),
 });
 
 export const TranslateResponseSchema = z.object({
