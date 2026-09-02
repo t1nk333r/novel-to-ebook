@@ -191,8 +191,13 @@ export async function execActions(
 
     if (type === "block") {
       await page.evaluate((sel) => {
-        const el = document.querySelector(sel) as HTMLAnchorElement;
-        el?.click();
+        let elements: NodeListOf<Element>;
+        try {
+          elements = document.querySelectorAll(sel);
+        } catch {
+          throw new Error(`invalid selector: ${sel}`);
+        }
+        elements.forEach((el) => el.remove());
       }, data.selector);
     }
 
