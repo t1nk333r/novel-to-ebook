@@ -30,6 +30,7 @@ status here.
 | 019 | Generate content selectors that match exactly the intended element | P2 | S | 002 | TODO |
 | 020 | Let the picker select multiple content elements | P2 | M | 019 | TODO |
 | 021 | Make the selector picker and extraction work inside iframes | P2 | M | 019, 020 | TODO |
+| 022 | Add a local Ollama backend for AI selector generation | P3 | M | 021 | TODO |
 
 Status values: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED`, or `REJECTED`.
 `DONE (verified …)` means the done criteria were re-checked against the working
@@ -117,6 +118,9 @@ installs Bun 1.4.0 and runs `pnpm check`, so the gate is real there.
   selector *shape* from a string to an array; 021 adds a frame qualifier onto
   that array shape. Running 021 before 020 means rewriting 021's schema work.
   All three touch `src/app/projects/utils.ts`, so they cannot be parallelized.
+- 022 depends on 021 because plan 020 turns `SelectorSchema.content` from a
+  string into an array, and 022's AI response shape must match the final form.
+  Landing 022 before 020 means reworking its schema and tests.
 - 018 documents the final commands and security model only after those commands
   and defaults exist.
 
