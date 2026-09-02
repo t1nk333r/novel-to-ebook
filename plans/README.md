@@ -18,16 +18,16 @@ status here.
 | 007 | Patch reachable vulnerable dependencies | P1 | M | 001, 002 | DONE |
 | 008 | Bound browser, import, fetch, and AI workloads | P1 | M | 004, 005 | TODO (partial — step 3 only) |
 | 009 | Make overlapping library rescans race-safe | P2 | S | 002 | DONE |
-| 010 | Make Block Element actions remove elements | P2 | S | 002 | TODO (reopened) |
+| 010 | Make Block Element actions remove elements | P2 | S | 002 | DONE (merged 2026-09-02) |
 | 011 | Process the first detected obfuscation font | P2 | S | 002 | DONE |
 | 012 | Always stop snapshot screenshot timers | P2 | S | 002 | DONE |
 | 013 | Restrict chapter updates to editable fields | P2 | S | 002 | DONE |
-| 014 | Serialize chapter order allocation | P2 | M | 002, 013 | TODO (reopened) |
-| 015 | Prevent stale reader loads from winning navigation | P2 | S | 002 | TODO |
+| 014 | Serialize chapter order allocation | P2 | M | 002, 013 | DONE (merged 2026-09-02) |
+| 015 | Prevent stale reader loads from winning navigation | P2 | S | 002 | DONE (merged 2026-09-02) |
 | 016 | Make library scanning incremental and concurrency-bounded | P2 | M | 009 | TODO |
-| 017 | Refresh cached books conditionally | P2 | S | 002 | TODO |
+| 017 | Refresh cached books conditionally | P2 | S | 002 | DONE (merged 2026-09-02) |
 | 018 | Add a production build and executable documentation | P2 | S | 001, 002, 004 | DONE |
-| 019 | Generate content selectors that match exactly the intended element | P2 | S | 002 | TODO |
+| 019 | Generate content selectors that match exactly the intended element | P2 | S | 002 | DONE (merged 2026-09-02) |
 | 020 | Let the picker select multiple content elements | P2 | M | 019 | TODO |
 | 021 | Make the selector picker and extraction work inside iframes | P2 | M | 019, 020 | TODO |
 | 022 | Add a local Ollama backend for AI selector generation | P3 | M | 021 | TODO |

@@ -6,47 +6,59 @@ the record").
 
 ## Where things are right now
 
-- Working branch: **`remediation/plans-001-018`** at `a179008`.
+- Working branch: **`remediation/plans-001-018`** at `1091213`.
 - `main` is untouched at `5b03d47`. Nothing has been pushed.
-- Four approved plan branches are **merged nowhere** — they live in agent
-  worktrees under `.claude/worktrees/` and await a merge decision.
-- A Storvi container is running and serving on `0.0.0.0:3000`.
+- **All four approved plan branches are merged** (010, 014, 017, 019), plus 015
+  which had already landed. Suite is green: 41 pass / 0 fail across 8 files,
+  typecheck clean, lint 0 errors / 23 warnings, production build succeeds.
+- A Storvi container is running and serving on `0.0.0.0:3000` — built from the
+  **pre-merge** image, so it does not yet contain any of this work.
 
 ### Branch topology
 
 ```
 main                        5b03d47   (untouched)
-remediation/plans-001-018   a179008   <- you are here
+remediation/plans-001-018   1091213   <- you are here
   ├─ fb02581  plans 001-018 remediation + docker + ALLOW_INSECURE_BIND
   ├─ e852fa8  plan 015 (landed here by accident — see note)
-  └─ a179008  plan corrections (014, 019)
-
-worktree-agent-ac2ab66f78269c7cd   8c065aa   plan 010   APPROVED, unmerged
-worktree-agent-a9fc71a370bb6a5d5   e0320ee   plan 017   APPROVED, unmerged
-worktree-agent-ae37832d828e33563   d2aa64f   plan 019   APPROVED, unmerged
-worktree-agent-ae276296e09c19dc0   fe75996   plan 014   APPROVED, unmerged
+  ├─ a179008  plan corrections (014, 019)
+  ├─ 0e6dff3  handoff rewrite + plan 022
+  ├─ a6ce789  Merge plan 010
+  ├─ 8983c6e  Merge plan 017
+  ├─ db2ab0e  Merge plan 019
+  ├─ 3c35ede  Merge plan 014
+  └─ 1091213  fix(test): restore DATABASE_URL after book-cache tests
 ```
+
+The four `worktree-agent-*` branches are now merged and their worktrees under
+`.claude/worktrees/` can be removed with `git worktree remove`.
 
 **Plan 015 landed on the working branch by accident.** Its executor's working
 directory shifted mid-run and it committed to `remediation/plans-001-018`
 instead of its own worktree. The work was reviewed and is sound, but it bypassed
 the merge gate. To drop it: `git reset --hard fb02581`.
 
-### Merging
+### The merge, and the bug it exposed
 
-All four were merged into a throwaway worktree and verified together before
-being discarded — **zero conflicts**, `bun test` 41 pass / 0 fail across 8 files,
-`tsc` clean for both server and UI. This is the tested order:
-
-```bash
-git merge --no-ff worktree-agent-ac2ab66f78269c7cd   # 010
-git merge --no-ff worktree-agent-a9fc71a370bb6a5d5   # 017
-git merge --no-ff worktree-agent-ae37832d828e33563   # 019
-git merge --no-ff worktree-agent-ae276296e09c19dc0   # 014
-```
-
-Each branch was also verified in isolation: 010 → 13 tests, 015 → 16, 017 → 19,
+Merged in the order 010 → 017 → 019 → 014. **Zero conflicts.** Each branch had
+also been verified in isolation first: 010 → 13 tests, 015 → 16, 017 → 19,
 019 → 16, 014 → 17, against a 10-test baseline.
+
+**An integration defect only appeared after merging.** `tests/book-cache.test.ts`
+(plan 017) pointed `process.env.DATABASE_URL` into its own temp dir, then deleted
+that dir in `afterAll` without restoring the variable. Every test file running
+afterwards failed to open a database — `chapter-order.test.ts` (plan 014) died
+with "unable to open database file".
+
+Two things make this worth remembering:
+
+- **Neither branch could catch it alone.** Both were green in isolation.
+- **It was order-dependent, so it was flaky.** An earlier trial merge in a
+  throwaway worktree passed 41/41 because the files happened to run in the other
+  order. A single green run across merged branches is not proof.
+
+Fixed in `1091213` by saving and restoring the variable around the temp dir's
+lifetime. Verified in both file orders and in the full suite.
 
 ## Plan status
 
@@ -61,16 +73,16 @@ Each branch was also verified in isolation: 010 → 13 tests, 015 → 16, 017 �
 | 007 | Patch dependencies | DONE, verified |
 | 008 | Bound workloads | **PARTIAL** — step 3 only |
 | 009 | Rescan race safety | DONE, verified |
-| 010 | Block Element removes | APPROVED, unmerged |
+| 010 | Block Element removes | DONE, merged |
 | 011 | Font attempt order | DONE, verified |
 | 012 | Snapshot timer cleanup | DONE, verified |
 | 013 | Chapter update fields | DONE, verified |
-| 014 | Serialize chapter order | APPROVED, unmerged |
-| 015 | Reader load generation | APPROVED, on branch |
+| 014 | Serialize chapter order | DONE, merged |
+| 015 | Reader load generation | DONE, merged |
 | 016 | Incremental library scan | TODO |
-| 017 | Conditional book refresh | APPROVED, unmerged |
+| 017 | Conditional book refresh | DONE, merged |
 | 018 | Production build + docs | DONE, verified |
-| 019 | Selector precision | APPROVED, unmerged |
+| 019 | Selector precision | DONE, merged |
 | 020 | Multi-select content selectors | TODO — depends on 019 |
 | 021 | Iframe selectors | TODO — depends on 020 |
 | 022 | Ollama page parser | TODO — depends on 021 |
@@ -104,7 +116,7 @@ deployment runs unauthenticated (below).
 Verified directly against `bun:sqlite`. Every chapter drag-reorder threw a 500.
 It survived because no test covered it, and because a prior reconcile read the
 function's structure and pronounced it correct **without executing it**. The fix
-is in plan 014's branch (`fe75996`), unmerged.
+is merged (`fe75996`, via `3c35ede`).
 
 Lesson worth carrying: reading code is not verifying code.
 
@@ -139,8 +151,9 @@ These cost several agent-hours. Read before starting.
 - **`DATABASE_URL` must be set for many tests.** Anything importing
   `src/app/projects/utils.ts` or the repositories transitively pulls
   `src/db/index.ts`, which throws at module load if unset. Plan 014's branch adds
-  `bunfig.toml` + `tests/setup.ts` to handle this globally; before that merges,
-  set it per-invocation. Never create a `.env` in the repo.
+  `bunfig.toml` + `tests/setup.ts`, now merged, which handles this globally.
+  Never create a `.env` in the repo, and never leave `DATABASE_URL` pointing at a
+  directory your test deletes — that was the integration bug above.
 - **`expect(promise).rejects.toThrow()` hangs under Bun 1.4.0** when the promise
   resolves through the `kysely-bun-worker` Worker dialect — it does not fail, it
   hangs until the 5000 ms per-test timeout. Use a plain try/catch helper. Plan
