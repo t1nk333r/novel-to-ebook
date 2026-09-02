@@ -79,6 +79,7 @@ describe("GET /library/get (conditional requests)", () => {
   let epubPath: string;
   let pdfPath: string;
   let app: import("hono").Hono<any, any, any>;
+  let previousDatabaseUrl: string | undefined;
 
   beforeAll(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "storvi-book-cache-"));
@@ -90,6 +91,10 @@ describe("GET /library/get (conditional requests)", () => {
     // DB is only touched by unrelated routes on this router, but importing
     // the module still requires DATABASE_URL to be set. Point it at a
     // temporary, throwaway path -- never the user's real data.
+    //
+    // Save the previous value: afterAll deletes tmpDir, so leaving the env var
+    // pointing inside it makes every later test file fail to open a database.
+    previousDatabaseUrl = process.env.DATABASE_URL;
     process.env.DATABASE_URL = path.join(tmpDir, "throwaway.sqlite");
 
     const items = [
@@ -136,6 +141,13 @@ describe("GET /library/get (conditional requests)", () => {
 
   afterAll(async () => {
     mock.restore();
+    // Restore before deleting tmpDir, so later test files do not inherit a
+    // DATABASE_URL pointing at a path that no longer exists.
+    if (previousDatabaseUrl === undefined) {
+      delete process.env.DATABASE_URL;
+    } else {
+      process.env.DATABASE_URL = previousDatabaseUrl;
+    }
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
