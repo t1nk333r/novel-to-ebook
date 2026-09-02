@@ -1,4 +1,6 @@
 import type { Page } from "puppeteer";
+import type { Kysely } from "kysely";
+import { sql } from "kysely";
 import {
   getProjectConfig,
   tryExtractContent,
@@ -6,9 +8,69 @@ import {
 } from "../utils";
 import { newBrowserPage } from "../../../lib/browser";
 import db from "../../../db";
+import type { DB } from "../../../db/types";
 import { uuid, waitFor } from "../../../lib/utils";
 import { importQueue } from "./context";
-import { sql } from "kysely";
+
+// Belt-and-suspenders retries on top of the (projectId,index) unique index:
+// the shared connection mutex already serializes every transaction in this
+// process, so a genuine race here should be extremely rare, but we still
+// want a clean recovery path rather than surfacing a raw constraint error.
+const MAX_INDEX_ALLOCATION_ATTEMPTS = 5;
+
+function isChapterIndexConflict(err: unknown) {
+  return (
+    err instanceof Error &&
+    err.message.includes("UNIQUE constraint failed") &&
+    err.message.includes("project_chapters")
+  );
+}
+
+export async function getLastIndex(
+  projectId: string,
+  executor: Kysely<DB> = db,
+) {
+  const last = await executor
+    .selectFrom("project_chapters")
+    .select(sql<number>`max("index")`.as("idx"))
+    .where("projectId", "=", projectId)
+    .executeTakeFirst();
+  return last?.idx ?? -1;
+}
+
+/**
+ * Allocates the next chapter index and inserts the chapter inside a single
+ * serialized transaction, so manual creates and imports can never read the
+ * same "last index" before either one has committed. Retries if a concurrent
+ * writer still manages to collide on the unique (projectId,index) index.
+ */
+export async function insertChapterAtNextIndex(
+  projectId: string,
+  data: { title: string; content: string },
+) {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < MAX_INDEX_ALLOCATION_ATTEMPTS; attempt++) {
+    try {
+      return await db.transaction().execute(async (trx) => {
+        const index = (await getLastIndex(projectId, trx)) + 1;
+        return trx
+          .insertInto("project_chapters")
+          .values({ ...data, projectId, index })
+          .returningAll()
+          .executeTakeFirstOrThrow();
+      });
+    } catch (err) {
+      if (isChapterIndexConflict(err)) {
+        lastError = err;
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw lastError;
+}
 
 export function queueImportChapters(payload: {
   projectId: string;
@@ -24,7 +86,6 @@ export function queueImportChapters(payload: {
         ? await getProjectConfig(projectId).then((i) => i.fontDecryptMap)
         : null;
       let progress = 0;
-      let lastIndex = await getLastIndex(projectId);
 
       try {
         page = await newBrowserPage();
@@ -38,16 +99,10 @@ export function queueImportChapters(payload: {
 
           const res = await tryExtractContent(page, url, { fontDecryptMap });
           console.log("inserting...", res.title || title);
-          await db
-            .insertInto("project_chapters")
-            .values({
-              projectId,
-              index: ++lastIndex,
-              title,
-              content: res.content,
-            })
-            .execute();
-          console.log("test");
+          await insertChapterAtNextIndex(projectId, {
+            title,
+            content: res.content,
+          });
 
           if (res.hasNewDecryptMap) {
             fontDecryptMap = res.fontDecryptMap;
@@ -75,15 +130,6 @@ export function queueImportChapters(payload: {
   );
 }
 
-export async function getLastIndex(projectId: string) {
-  const last = await db
-    .selectFrom("project_chapters")
-    .select(sql<number>`max("index")`.as("idx"))
-    .where("projectId", "=", projectId)
-    .executeTakeFirst();
-  return last?.idx ?? -1;
-}
-
 export async function reorderChapters(projectId: string, ids: number[]) {
   const caseSql = sql`CASE id
     ${sql.join(
@@ -92,13 +138,29 @@ export async function reorderChapters(projectId: string, ids: number[]) {
     )}
   END`;
 
-  const chapters = await db.selectFrom("project_chapters").select("id").where("projectId", "=", projectId).execute();
+  const chapters = await db
+    .selectFrom("project_chapters")
+    .select("id")
+    .where("projectId", "=", projectId)
+    .execute();
   const allowed = new Set(chapters.map((chapter) => chapter.id));
-  if (ids.length !== chapters.length || new Set(ids).size !== ids.length || ids.some((id) => !allowed.has(id))) {
+  if (
+    ids.length !== chapters.length ||
+    new Set(ids).size !== ids.length ||
+    ids.some((id) => !allowed.has(id))
+  ) {
     throw new Error("Reorder ids must be unique chapters in this project");
   }
   await db.transaction().execute(async (trx) => {
-    await trx.updateTable("project_chapters").set({ index: sql`index + 1000000` as never }).where("projectId", "=", projectId).execute();
-    await trx.updateTable("project_chapters").set({ index: caseSql as never }).where("projectId", "=", projectId).execute();
+    await trx
+      .updateTable("project_chapters")
+      .set({ index: sql`"index" + 1000000` as never })
+      .where("projectId", "=", projectId)
+      .execute();
+    await trx
+      .updateTable("project_chapters")
+      .set({ index: caseSql as never })
+      .where("projectId", "=", projectId)
+      .execute();
   });
 }

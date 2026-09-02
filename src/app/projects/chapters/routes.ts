@@ -5,7 +5,7 @@ import db from "../../../db";
 import { uuid, waitFor } from "../../../lib/utils";
 import z from "zod";
 import {
-  getLastIndex,
+  insertChapterAtNextIndex,
   queueImportChapters,
   reorderChapters,
 } from "./repository";
@@ -32,17 +32,9 @@ router.post(
     const { projectId } = c.req.valid("param");
     const body = c.req.valid("json");
 
-    const res = await db
-      .insertInto("project_chapters")
-      .values({
-        ...body,
-        projectId,
-        index: (await getLastIndex(projectId)) + 1,
-      })
-      .returning(["id", "title"])
-      .executeTakeFirstOrThrow();
+    const res = await insertChapterAtNextIndex(projectId, body);
 
-    return c.var.res(res);
+    return c.var.res({ id: res.id, title: res.title });
   },
 );
 
