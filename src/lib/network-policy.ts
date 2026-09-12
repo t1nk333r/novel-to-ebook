@@ -111,10 +111,12 @@ export function isPublicIp(address: string) {
   return false;
 }
 
-export async function assertSafeOutboundUrl(
-  input: string | URL,
-  options?: { lookup?: Lookup },
-) {
+/**
+ * The DNS-free half of the outbound policy: scheme, embedded credentials,
+ * `localhost`, and literal addresses. Shared by `assertSafeOutboundUrl` (which
+ * adds resolution) and by `isAllowedOutboundUrl`.
+ */
+function parseOutboundUrl(input: string | URL) {
   let url: URL;
   try {
     url = input instanceof URL ? new URL(input) : new URL(input);
@@ -131,10 +133,35 @@ export async function assertSafeOutboundUrl(
     throw new UnsafeOutboundUrlError();
   }
 
-  if (isIP(hostname)) {
-    if (!isPublicIp(hostname)) throw new UnsafeOutboundUrlError();
-    return url;
+  if (isIP(hostname) && !isPublicIp(hostname)) {
+    throw new UnsafeOutboundUrlError();
   }
+
+  return { url, hostname };
+}
+
+/**
+ * Synchronous form of `assertSafeOutboundUrl` for callers that cannot await —
+ * the EPUB generator's image hook is the reason this exists. Names are accepted
+ * on their surface only: a hostname that resolves to a private address still
+ * passes here, which is why this is not a substitute for the fetch paths.
+ */
+export function isAllowedOutboundUrl(input: string | URL) {
+  try {
+    parseOutboundUrl(input);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function assertSafeOutboundUrl(
+  input: string | URL,
+  options?: { lookup?: Lookup },
+) {
+  const { url, hostname } = parseOutboundUrl(input);
+
+  if (isIP(hostname)) return url;
 
   let addresses: LookupAddress[];
   try {

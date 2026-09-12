@@ -16,6 +16,41 @@
 - **Depends on**: `plans/005-safe-outbound-urls.md` (landed)
 - **Category**: security
 - **Planned at**: commit `04dfe0e`, 2026-09-12
+- **Resolved**: 2026-09-12 — see "Resolution" below
+
+## Resolution 2026-09-12
+
+**Reproduced, and worse than described.** A chapter containing
+`<img src="file:///etc/hostname">` and `<img src="http://127.0.0.1:3013/api/library">`
+was exported, and the resulting EPUB contained an image entry whose bytes were
+the contents of `/etc/hostname`. The loopback image was attempted too. Local
+file bytes leaving the machine inside a downloadable artifact is the exfiltration
+primitive this plan predicted.
+
+**The plan's fix sketch was wrong twice, and both corrections matter:**
+
+1. It proposed filtering in `imageTransformer` and dropping by returning a falsy
+   value. The generator does `imageTransformer?.(image) || image`, so a falsy
+   return silently keeps the original — a filter written that way would have
+   looked right and done nothing.
+2. The dependency already supports this properly: it passes
+   `urlValidator` into `retryFetch`, which **throws when the validator returns
+   truthy** (inverted naming — true means *reject*). Combined with the
+   `ignoreFailedDownloads: true` the route already set, a rejected URL becomes a
+   warning and an empty image entry instead of a failed export.
+
+What landed: `isAllowedOutboundUrl()` in `src/lib/network-policy.ts` — the
+synchronous, DNS-free half of the existing policy, extracted so
+`assertSafeOutboundUrl` and the export hook share one implementation of the
+scheme/credentials/localhost/literal-IP rules — wired in as
+`urlValidator: (url) => !isAllowedOutboundUrl(url)` on the export call. Five new
+tests cover the predicate, including that it agrees with the async guard.
+
+Verified after the fix on the same fixture: no local file bytes in the EPUB and
+both hostile images are 0-byte placeholders, while a public `https://` image is
+still downloaded and embedded (32,870 bytes) — so the fix filters rather than
+disables images. The README now states the residual gap: this hook checks the
+host, not what it resolves to.
 
 ## Why this matters
 

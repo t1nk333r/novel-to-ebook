@@ -34,7 +34,7 @@ status here.
 | 023 | Let the web UI authenticate with the API bearer token | P1 | M | 004 | DONE (verified 2026-09-02) |
 | 024 | Validate every Chromium navigation, not just the entry URL | P1 | M-L | 005 | TODO |
 | 025 | Finish the picker → save flow (stacked Radix dialogs) | P1 | S-M | 020 | DONE (verified 2026-09-12 — silent validation, not a dead dialog; see the plan's Resolution) |
-| 026 | Stop the EPUB exporter fetching arbitrary URLs | P2 | S | 005 | TODO |
+| 026 | Stop the EPUB exporter fetching arbitrary URLs | P2 | S | 005 | DONE (verified 2026-09-12 — reproduced a local-file read into the EPUB) |
 
 Status values: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED`, or `REJECTED`.
 `DONE (verified …)` means the done criteria were re-checked against the working
@@ -93,6 +93,28 @@ finished work — see the commit for the starvation measurement; plus the browse
 launch race, the out-of-policy font fetch, the silently swallowed scan failure,
 the reorder/NOT NULL race, the cross-project import stream, and two UI
 robustness fixes. `tests/queue-manager.test.ts` pins the queue contract.
+
+### 2026-09-12 — plan 026 executed (local file read into the exported EPUB)
+
+Reproduced with a chapter containing `<img src="file:///etc/hostname">`: the
+exported EPUB contained an image entry whose bytes were that file's contents. The
+generator reads `file://` URLs off the filesystem and fetches everything else
+unguarded, and chapter content is scraped from pages the operator does not
+control — so a hostile page could put a local file, or an internal URL, inside
+the artifact the operator downloads.
+
+Two corrections to the plan's approach, both recorded in the plan:
+
+- filtering in `imageTransformer` and returning falsy does **not** drop an image
+  (`imageTransformer?.(image) || image` keeps the original);
+- the dependency already accepts a `urlValidator`, and its contract is inverted —
+  returning truthy *rejects*. With the `ignoreFailedDownloads: true` the route
+  already passed, a rejected URL degrades to a warning plus an empty entry.
+
+`isAllowedOutboundUrl()` now lives beside the async guard and shares its rules,
+so the two cannot drift. Verified after the fix: no local bytes in the EPUB, both
+hostile images become 0-byte placeholders, and a public `https://` image is still
+embedded — the filter filters rather than disables.
 
 ### 2026-09-12 — plan 025 resolved (and an earlier diagnosis corrected)
 

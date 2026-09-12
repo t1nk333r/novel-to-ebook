@@ -35,7 +35,10 @@ import chapters from "./chapters/routes";
 import { HTTPError } from "../../lib/error";
 import { resolveExportDestination } from "../../lib/export-path";
 import { limits } from "../../lib/limits";
-import { assertSafeOutboundUrl } from "../../lib/network-policy";
+import {
+  assertSafeOutboundUrl,
+  isAllowedOutboundUrl,
+} from "../../lib/network-policy";
 import fs from "fs";
 import type { ProjectConfig } from "./types";
 import {
@@ -290,6 +293,12 @@ router.post(
           lang: project.language || "en",
           ignoreFailedDownloads: true,
           tocInTOC: true,
+          // The generator reads `file://` URLs straight off the filesystem and
+          // fetches everything else with no host policy. Chapter content is
+          // scraped from pages we do not control, so a `file:` or private-host
+          // <img> would otherwise land inside the exported EPUB. Note the
+          // inverted contract: returning true here means "reject this URL".
+          urlValidator: (url: string) => !isAllowedOutboundUrl(url),
           imageTransformer(image) {
             if (image.url.startsWith("//")) {
               image.url = "https:" + image.url;

@@ -94,3 +94,22 @@ clearing site data. It is never attached to cross-origin requests.
 Treat the token as device-scoped: any script running on the page can read
 `localStorage`. Rotate it by changing `API_TOKEN` on the server, which
 invalidates every stored copy.
+
+### Outbound requests
+
+Storvi fetches pages, images, and fonts that you point it at, and content it
+scrapes can contain URLs of its own, so every server-side outbound request is
+filtered: only `http:`/`https:`, no credentials in the URL, no `localhost`, and
+no literal loopback/private/link-local address. Redirect targets are re-checked
+and response sizes are capped.
+
+Two limits are worth knowing:
+
+- The filter checks the **host**, not what it resolves to, for the image URLs
+  inside an exported EPUB (`file://` and internal addresses are refused; a
+  hostname that resolves to a private address is not). That hook cannot do a DNS
+  lookup without blocking the export.
+- Chromium fetches a page's subresources itself, and only the page URL you
+  request is policy-checked. Do not point the extractor at pages you do not
+  trust to behave like ordinary web pages.
+
