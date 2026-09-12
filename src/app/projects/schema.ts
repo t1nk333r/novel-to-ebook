@@ -155,6 +155,13 @@ export const ProjectConfigSchema = z.object({
   // can be resumed. Kept in the existing JSON config column: no migration, and
   // it is project state rather than chapter state.
   importedChapterIds: z.string().array().nullish(),
+  // Which chapters an AI cleanup pass has already been over, so a second run
+  // costs nothing for work already done. Same column, same reasoning.
+  cleanedChapterIds: z.string().array().nullish(),
+  // Chapters a cleanup pass deliberately left alone (removal cap, provider
+  // error). Kept so "clean everything" can be re-run without re-paying for the
+  // ones that already came back clean.
+  skippedCleanupChapterIds: z.string().array().nullish(),
 });
 
 ///////////////////////////

@@ -40,6 +40,7 @@ status here.
 | 029 | Companion browser extension | P2 | M | 023, 027, 028 | DONE (verified 2026-09-12 — real page captured with no server browser) |
 | 030 | A chrome match must never delete the content block | P1 | S | 019, 029 | DONE (2026-09-12 — `para-comment-allowed` deleted whole chapters) |
 | 031 | Mistral as a selector-generation backend | P3 | S | 022 | DONE (2026-09-13 — `AI_PROVIDER` makes a host without the ollama sidecar usable) |
+| 032 | AI cleanup pass: keep the chapter, drop the rest | P2 | M | 031 | DONE (2026-09-13 — verified live on imported WordPress chapters) |
 
 Status values: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED`, or `REJECTED`.
 `DONE (verified …)` means the done criteria were re-checked against the working
@@ -98,6 +99,28 @@ finished work — see the commit for the starvation measurement; plus the browse
 launch race, the out-of-policy font fetch, the silently swallowed scan failure,
 the reorder/NOT NULL race, the cross-project import stream, and two UI
 robustness fixes. `tests/queue-manager.test.ts` pins the queue contract.
+
+### 2026-09-13 — plan 032 (AI chapter cleanup)
+
+Chapter bodies carry publisher furniture that no class/id rule can match: the
+WordPress serial writes separator lines, "Random video from my channel", patron
+pitches and translator credits *inside* the post. `stripSiteChrome` is structurally
+blind to it.
+
+The split is the design: the model decides which blocks are furniture, and the
+deletion is mechanical — retained blocks are byte-identical to the input, so a
+wrong answer can only retain or drop a whole block, never rewrite prose. Only the
+chapter's edge blocks are offered, a removal over 30% of the text is refused, and
+out-of-range indices the model invents are discarded.
+
+A deterministic pre-pass handles what is provably furniture (separators, empties,
+promo-only links, credit lines) so a run with no AI still cleans those, and the
+model only sees the ambiguous remainder.
+
+Verified against the live API on three imported chapters: translator intro and
+schedule notes, `Translator: Raizu / Editor: Xaga`, separators, the video
+placeholder and the FGO chatter all removed, each chapter now opening on its own
+"Chapter N –" heading. ~600-750 ms per chapter on mistral-small-latest.
 
 ### 2026-09-13 — plan 031 (Mistral backend for selector generation)
 

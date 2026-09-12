@@ -8,6 +8,7 @@ import { stripSiteChrome } from "../utils";
 import db from "../../../db";
 import { uuid, waitFor } from "../../../lib/utils";
 import z from "zod";
+import { queueCleanChapters } from "./cleanup";
 import {
   insertChapterAtNextIndex,
   queueImportChapters,
@@ -264,6 +265,32 @@ router.post(
     });
 
     return c.var.res({ taskId: res.id });
+  },
+);
+
+// Clean up every chapter: AI decides which blocks are furniture, deletion is
+// mechanical and capped, and the run is resumable through the project config.
+router.post(
+  "/clean",
+  openApi({
+    tags: ["Projects"],
+    summary: "Clean chapter bodies (AI)",
+    request: {
+      param: z.object({ projectId: z.string() }),
+      json: z.object({
+        maxChapters: z.number().int().min(1).max(limits.importLinks).optional(),
+        dryRun: z.boolean().optional(),
+      }),
+    },
+    responses: { 200: z.object({ taskId: z.uuid() }) },
+  }),
+  async (c) => {
+    const { projectId } = c.req.valid("param");
+    const { maxChapters, dryRun } = c.req.valid("json");
+
+    const res = queueCleanChapters({ projectId, maxChapters, dryRun });
+
+    return c.var.res(200, { taskId: res.id });
   },
 );
 
