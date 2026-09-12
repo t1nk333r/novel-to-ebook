@@ -222,11 +222,7 @@ Numbered, self-contained implementation plans; `plans/README.md` carries the sta
 When you finish work covered by a plan, update its status row and add a log entry; when execution
 diverges from the plan text, amend the plan to match.
 
-Currently open: **016** (incremental library scan), the **020 → 021 → 022** selector chain (020 landed
-2026-09-12; 021 and 022 remain), **024** (per-navigation browser policy — the Puppeteer paths check only
-the entry URL), **025** (a stacked-dialog defect that can leave the Add Chapter form inert after using
-the picker), and **026** (export-time image URLs bypass the SSRF policy). 016 and the 021/022 pair
-rewrite `src/app/projects/utils.ts` and must run in that order — they cannot be parallelized.
-
-A `DONE` marking is not proof: several plans were marked done while failing their own criteria. Re-check
-against the working tree before relying on one.
+The plan set is complete as of 2026-09-12: 001–026 are all DONE. When new work is
+planned, add a numbered file and a status row here rather than reviving a finished
+one — several plans were marked done in the past while failing their own criteria,
+so re-check a DONE against the working tree before relying on it.

@@ -14,13 +14,13 @@ remediation/plans-001-018   27de206   all work lives here
 
 | Gate | Result |
 |---|---|
-| `bun test` | 72 pass, 0 fail, 12 files |
+| `bun test` | 115 pass, 0 fail, 16 files |
 | `pnpm typecheck` | clean (server + UI) |
 | `pnpm lint` | 0 errors, 23 warnings |
 | `pnpm build` | `ui/dist/index.html` present |
 
-Plans 001–015, 017–019, 023 are done, and 008's remaining step 3 landed
-2026-09-02. Plans 016, 020, 021, 022 are TODO.
+Plans 001–026 are all done: the set closed on 2026-09-12 (016, 020, 021, 022,
+024, 025 and 026 landed that day, plus 008's step 3 on 2026-09-02).
 
 A container is running and serving on `0.0.0.0:3000`, but it was **built before
 the merges** — none of the merged work is live yet.
@@ -82,14 +82,17 @@ git submodule update --init --recursive     # only if pnpm build fails
 | 013 | Chapter update fields | DONE |
 | 014 | Serialize chapter order | DONE, merged |
 | 015 | Reader load generation | DONE, merged |
-| 016 | Incremental library scan | TODO |
+| 016 | Incremental library scan | DONE 2026-09-12 |
 | 017 | Conditional book refresh | DONE, merged |
 | 018 | Production build + docs | DONE |
 | 019 | Selector precision | DONE, merged |
-| 020 | Multi-select content selectors | TODO — depends on 019 (satisfied) |
-| 021 | Iframe selectors | TODO — depends on 020 |
-| 022 | Ollama page parser | TODO — depends on 021 |
+| 020 | Multi-select content selectors | DONE, retargeted (the planned function was dead code) |
+| 021 | Iframe selectors | DONE 2026-09-12 |
+| 022 | Ollama page parser | DONE 2026-09-12 (local model, no API key) |
 | 023 | UI bearer token transport | DONE, browser-verified |
+| 024 | Browser navigation policy | DONE — redirects into the network blocked |
+| 025 | Picker → save flow | DONE — silent validation, not a dead dialog |
+| 026 | Exporter image URLs | DONE — was reading local files into the EPUB |
 
 `plans/README.md` holds the full reconciliation log with per-plan evidence.
 
@@ -103,7 +106,9 @@ the live 429/200 evidence are in `plans/README.md`.
 
 ### Test suite
 
-10 tests across 3 files at session start; **72 across 12 files** now. Still thin.
+10 tests across 3 files at session start; **115 across 16 files** now. Still thin
+relative to the surface, but every plan landed this session carries tests that fail
+when its fix is removed (checked by neutering the fix).
 Plans 003–014 named test targets (`auth`, `startup`, `rescan`, `font-attempts`)
 that were never written. A green `pnpm check` is weak evidence on its own.
 
