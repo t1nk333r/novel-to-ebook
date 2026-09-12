@@ -2,6 +2,7 @@ import sanitizeHtml from "sanitize-html";
 import { GoogleGenAI } from "@google/genai";
 import { selectorExample, SelectorSchema } from "../app/projects/schema";
 import removeMd from "remove-markdown";
+import { aiExecutor } from "./bounded-executor";
 
 let ai: GoogleGenAI | null = null;
 
@@ -34,10 +35,12 @@ export async function generateSelectors(html: string, followUp?: string) {
     });
   }
 
-  const response = await getAI().models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: prompts,
-  });
+  const response = await aiExecutor.run(() =>
+    getAI().models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompts,
+    }),
+  );
   if (!response.text) {
     throw new Error("No response");
   }
@@ -47,14 +50,16 @@ export async function generateSelectors(html: string, followUp?: string) {
 }
 
 export async function translate(text: string, to = "en") {
-  const response = await getAI().models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: `Translate HTML to [${to.toUpperCase()}]:
+  const response = await aiExecutor.run(() =>
+    getAI().models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: `Translate HTML to [${to.toUpperCase()}]:
     1. No Layout Changes: Keep all HTML tags exactly as they are. Translate only the text content inside.
     2. Literal Style: Maintain the original sentence structure, tone, and specific idioms. Do not over-localize or change the author's unique voice/pacing.
     3. No Meta-Talk: Output only the translated HTML. No explanations or notes.
     Content:\n\n${text}`,
-  });
+    }),
+  );
 
   return response.text;
 }

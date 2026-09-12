@@ -7,6 +7,7 @@ import {
   updateProjectConfig,
 } from "../utils";
 import { newBrowserPage } from "../../../lib/browser";
+import { browserExecutor } from "../../../lib/bounded-executor";
 import db from "../../../db";
 import type { DB } from "../../../db/types";
 import { uuid, waitFor } from "../../../lib/utils";
@@ -87,6 +88,10 @@ export function queueImportChapters(payload: {
         : null;
       let progress = 0;
 
+      // Background work waits for a browser slot instead of failing: a 429
+      // here would abandon an import the operator explicitly queued.
+      const releaseBrowser = await browserExecutor.acquire();
+
       try {
         page = await newBrowserPage();
         await page.setViewport({ width: 640, height: 480 });
@@ -122,6 +127,7 @@ export function queueImportChapters(payload: {
         throw err;
       } finally {
         if (page) await page.close();
+        releaseBrowser();
       }
 
       ctx.setProgress(100, "Done");

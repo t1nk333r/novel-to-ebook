@@ -53,6 +53,13 @@ Copy `.env.example` and set `DATA_PATH`, `PORT`, and (when binding `HOST` beyond
 loopback) a strong `API_TOKEN`. Remote API requests must then send
 `Authorization: Bearer <API_TOKEN>`.
 
+`.env.example` lists the rest: request/text/link ceilings and the two workload
+ceilings, `MAX_BROWSER_CONCURRENCY` (default 3) and `MAX_AI_CONCURRENCY`
+(default 2). Those two are enforced process-wide — a request that would exceed
+them is refused with `429 WORKLOAD_LIMIT_REACHED` before any work starts, while
+a queued chapter import waits for a free slot instead of failing. Raise them
+only if the host has the RAM for the extra Chromium pages.
+
 ### Binding beyond loopback
 
 `HOST` defaults to `127.0.0.1`. Any other value counts as remote and requires

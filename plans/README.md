@@ -16,7 +16,7 @@ status here.
 | 005 | Enforce an SSRF-safe outbound URL policy | P1 | M | 002 | DONE |
 | 006 | Complete migrations before scans and traffic | P1 | S | 002 | DONE |
 | 007 | Patch reachable vulnerable dependencies | P1 | M | 001, 002 | DONE |
-| 008 | Bound browser, import, fetch, and AI workloads | P1 | M | 004, 005 | TODO (partial — step 3 only) |
+| 008 | Bound browser, import, fetch, and AI workloads | P1 | M | 004, 005 | DONE (verified 2026-09-02) |
 | 009 | Make overlapping library rescans race-safe | P2 | S | 002 | DONE |
 | 010 | Make Block Element actions remove elements | P2 | S | 002 | DONE (merged 2026-09-02) |
 | 011 | Process the first detected obfuscation font | P2 | S | 002 | DONE |
@@ -38,6 +38,40 @@ Status values: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED`, or `REJECTED`.
 tree on the stated date.
 
 ## Reconciliation log
+
+### 2026-09-02 — plan 008 step 3 executed
+
+The last open piece of 008: `src/lib/bounded-executor.ts` existed but nothing
+imported it, so `MAX_BROWSER_CONCURRENCY` and `MAX_AI_CONCURRENCY` were
+configured and ignored. Now wired at four call sites, with two acquisition
+modes:
+
+- Request paths use `tryAcquire`/`run`, so saturation answers **429
+  `WORKLOAD_LIMIT_REACHED`** before any work starts —
+  `POST /projects/extract` (`src/app/projects/routes.ts:203`) and
+  `POST /projects/snapshot`, where the slot is taken *before* `streamSSE`
+  opens (`routes.ts:332`) so the failure is a status code rather than an error
+  event on an already-committed 200.
+- Background work uses the new awaiting `acquire()`
+  (`src/app/projects/chapters/repository.ts:93`): a queued import waits for a
+  slot instead of being abandoned with a 429. `QueueManager` defaults to
+  `retries: 0`, so failing that task would lose the operator's import.
+- Both AI calls are bounded at the source in `src/lib/utils.ts`, so future
+  callers inherit the ceiling.
+
+`acquire()` hands a released slot **directly** to the next FIFO waiter instead
+of decrementing and letting the waiter re-increment; the naive version lets a
+`tryAcquire()` landing in that gap oversubscribe (verified: two holders on a
+max-1 executor). `tests/workload-concurrency.test.ts` pins that, plus release
+on success/throw and release idempotence.
+
+Live proof with `MAX_BROWSER_CONCURRENCY=1`: a snapshot stream returned 200
+while a concurrent snapshot returned `429 {"code":"WORKLOAD_LIMIT_REACHED"}`,
+and a third request after the first finished returned 200 with an `event:
+result` — the slot releases.
+
+Gates: `pnpm test` 55 pass / 0 fail across 10 files; `pnpm typecheck` clean;
+`pnpm lint` 0 errors / 23 warnings; `pnpm build` ok.
 
 ### 2026-09-02 — plan 023 written and executed
 

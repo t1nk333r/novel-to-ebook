@@ -51,8 +51,6 @@ credentials, book contents, or full AI prompts.
 
 ## [ORPHANS & PENDING]
 
-- Plan 008 step 3: `src/lib/bounded-executor.ts` exists but nothing routes through
-  it, so browser and AI calls are still unbounded in practice.
 - Plan 016: the library scan re-stats and re-parses every file each pass
   (`src/app/library/utils.ts`); flow step 3's "incrementally enriches changed
   files" is the target, not the current behaviour.

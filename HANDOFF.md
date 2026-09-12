@@ -14,13 +14,13 @@ remediation/plans-001-018   27de206   all work lives here
 
 | Gate | Result |
 |---|---|
-| `bun test` | 50 pass, 0 fail, 9 files |
+| `bun test` | 55 pass, 0 fail, 10 files |
 | `pnpm typecheck` | clean (server + UI) |
 | `pnpm lint` | 0 errors, 23 warnings |
 | `pnpm build` | `ui/dist/index.html` present |
 
-Plans 001–007, 009–015, 017–019, 023 are done. Plan 008 is **partial**.
-Plans 016, 020, 021, 022 are TODO.
+Plans 001–015, 017–019, 023 are done, and 008's remaining step 3 landed
+2026-09-02. Plans 016, 020, 021, 022 are TODO.
 
 A container is running and serving on `0.0.0.0:3000`, but it was **built before
 the merges** — none of the merged work is live yet.
@@ -74,7 +74,7 @@ git submodule update --init --recursive     # only if pnpm build fails
 | 005 | SSRF-safe outbound URLs | DONE |
 | 006 | Migrations before traffic | DONE |
 | 007 | Patch dependencies | DONE |
-| 008 | Bound workloads | **PARTIAL** — step 3 only |
+| 008 | Bound workloads | DONE — step 3 wired 2026-09-02 |
 | 009 | Rescan race safety | DONE |
 | 010 | Block Element removes | DONE, merged |
 | 011 | Font attempt order | DONE |
@@ -93,16 +93,17 @@ git submodule update --init --recursive     # only if pnpm build fails
 
 `plans/README.md` holds the full reconciliation log with per-plan evidence.
 
-### The remaining partial
+### Workload ceilings
 
-**Plan 008 — `src/lib/bounded-executor.ts` is an orphan.** Limits and Zod maxima
-landed, but `grep -rn "BoundedExecutor" src/` matches only its own definition. No
-browser or AI call passes through a semaphore, so "concurrency slots release on
-success, error, and abort" cannot hold. Step 3 is the remaining work.
+`MAX_BROWSER_CONCURRENCY` (3) and `MAX_AI_CONCURRENCY` (2) are now enforced, not
+just configured. Request paths get a 429 `WORKLOAD_LIMIT_REACHED` when saturated;
+the chapter-import worker waits for a slot instead, because `QueueManager`
+defaults to `retries: 0` and a 429 would silently drop the import. Details and
+the live 429/200 evidence are in `plans/README.md`.
 
 ### Test suite
 
-10 tests across 3 files at session start; **50 across 9 files** now. Still thin.
+10 tests across 3 files at session start; **55 across 10 files** now. Still thin.
 Plans 003–014 named test targets (`auth`, `startup`, `rescan`, `font-attempts`)
 that were never written. A green `pnpm check` is weak evidence on its own.
 

@@ -222,9 +222,8 @@ Numbered, self-contained implementation plans; `plans/README.md` carries the sta
 When you finish work covered by a plan, update its status row and add a log entry; when execution
 diverges from the plan text, amend the plan to match.
 
-Currently open: **008** (wire the orphaned `src/lib/bounded-executor.ts`), **016** (incremental library
-scan), **020 → 021 → 022** (selector chain). Those three all rewrite `src/app/projects/utils.ts` and must
-run in that order — they cannot be parallelized.
+Currently open: **016** (incremental library scan) and the **020 → 021 → 022** selector chain. Those
+three rewrite `src/app/projects/utils.ts` and must run in that order — they cannot be parallelized.
 
 A `DONE` marking is not proof: several plans were marked done while failing their own criteria. Re-check
 against the working tree before relying on one.

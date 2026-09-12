@@ -12,6 +12,7 @@ import {
   UpdateProjectReqSchema,
 } from "./schema";
 import { execActions, newBrowserPage } from "../../lib/browser";
+import { browserExecutor } from "../../lib/bounded-executor";
 import type { Page } from "puppeteer";
 import { openApi } from "hono-zod-openapi";
 import { HTTPException } from "hono/http-exception";
@@ -200,34 +201,36 @@ router.post(
   async (c) => {
     const { projectId, url, selector } = c.req.valid("json");
 
-    let page: Page | null = null;
+    return browserExecutor.run(async () => {
+      let page: Page | null = null;
 
-    try {
-      page = await newBrowserPage();
-      await page.setViewport({ width: 640, height: 480 });
+      try {
+        page = await newBrowserPage();
+        await page.setViewport({ width: 640, height: 480 });
 
-      const fontDecryptMap = projectId
-        ? await getProjectConfig(projectId).then((i) => i.fontDecryptMap)
-        : null;
+        const fontDecryptMap = projectId
+          ? await getProjectConfig(projectId).then((i) => i.fontDecryptMap)
+          : null;
 
-      const res = await tryExtractContent(page, url, {
-        fontDecryptMap,
-        selector,
-      });
-
-      if (res.hasNewDecryptMap && projectId) {
-        await updateProjectConfig(projectId, {
-          fontDecryptMap: res.fontDecryptMap,
+        const res = await tryExtractContent(page, url, {
+          fontDecryptMap,
+          selector,
         });
-      }
 
-      return c.var.res({ ...res, fonts: [...res.fonts] });
-    } catch (err) {
-      console.error(err);
-      throw new HTTPError("Error extracting content", { status: 400 });
-    } finally {
-      if (page) await page.close();
-    }
+        if (res.hasNewDecryptMap && projectId) {
+          await updateProjectConfig(projectId, {
+            fontDecryptMap: res.fontDecryptMap,
+          });
+        }
+
+        return c.var.res({ ...res, fonts: [...res.fonts] });
+      } catch (err) {
+        console.error(err);
+        throw new HTTPError("Error extracting content", { status: 400 });
+      } finally {
+        if (page) await page.close();
+      }
+    });
   },
 );
 
@@ -325,6 +328,10 @@ router.post(
     const body = c.req.valid("json");
     const { url, width, height, isFullPage, actions } = body;
 
+    // Acquired before the stream opens so saturation answers 429 instead of
+    // an SSE error event after the response has already committed to 200.
+    const releaseBrowser = browserExecutor.tryAcquire();
+
     return streamSSE(c, async (s) => {
       let page: Page | null = null;
       let stopScreenshots: PeriodicTaskStop | null = null;
@@ -421,6 +428,7 @@ router.post(
       } finally {
         await stopScreenshots?.();
         if (page) await page.close();
+        releaseBrowser();
       }
     });
   },
