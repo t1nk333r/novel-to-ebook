@@ -846,6 +846,52 @@ export async function extractArticle(
   };
 }
 
+/**
+ * Preference order: real headings first, then the order the previous
+ * implementation used among the rest (`b` < `p` < `strong`, alphabetical), so
+ * the only behavioural change is that a heading now beats emphasis.
+ */
+const TITLE_TAG_ORDER = ["h1", "h2", "h3", "h4", "b", "p", "strong"] as const;
+
+function titleTagRank(tag: string) {
+  const index = TITLE_TAG_ORDER.indexOf(
+    tag.toLowerCase() as (typeof TITLE_TAG_ORDER)[number],
+  );
+  return index === -1 ? TITLE_TAG_ORDER.length : index;
+}
+
+function looksLikeChapterTitle(text: string) {
+  return /chapter|part|epilogue|prologue|volume|book|\d/i.test(text);
+}
+
+function normalizeTitle(text: string | null | undefined) {
+  return (text ?? "").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * The chapter title as the page presents it — the heading above the body.
+ *
+ * `findChapterTitle` only ever sees the extracted content, which on many sites
+ * opens with publisher chrome: on Webnovel the block starts with the author's
+ * note, and the chapter's own title sits in the page's `<h1>` outside the
+ * content selector entirely. Candidates are split so the caller can prefer a
+ * heading that reads like a chapter title, fall back to the content block, and
+ * only then take any heading at all.
+ */
+export function findDocumentChapterTitle(doc: Document) {
+  const candidates = Array.from(doc.querySelectorAll("h1, h2, h3"))
+    .map((el) => ({ el, text: normalizeTitle(el.textContent) }))
+    .filter(({ text }) => text.length > 0 && text.length <= 120)
+    .map(({ el, text }) => ({
+      title: text,
+      titleSelector: getSelector(el as HTMLElement, doc),
+    }));
+
+  const hinted = candidates.find((c) => looksLikeChapterTitle(c.title)) ?? null;
+
+  return { hinted, first: candidates[0] ?? null };
+}
+
 export function findChapterTitle(doc: Document) {
   // Find chapter title
   let title = "";
@@ -855,7 +901,9 @@ export function findChapterTitle(doc: Document) {
     ...doc.querySelectorAll("h1, h2, h3, h4, b, strong, p:first-of-type"),
   ]
     .filter((el) => el.textContent?.trim().length)
-    .sort((a, b) => a.tagName.localeCompare(b.tagName))[0];
+    // Rank by tag, not alphabetically: sorting by name put `b` before `h1`, so
+    // bold publisher chrome always outranked a real chapter heading.
+    .sort((a, b) => titleTagRank(a.tagName) - titleTagRank(b.tagName))[0];
 
   if (titleEl) {
     title = titleEl.textContent?.trim() || "";
@@ -922,11 +970,20 @@ export async function tryExtractContent(
   }
 
   const contentEl = new JSDOM(content);
-  const chapter = findChapterTitle(contentEl.window.document);
+  const contentChapter = findChapterTitle(contentEl.window.document);
+  const pageChapter = findDocumentChapterTitle(new JSDOM(html).window.document);
 
   return {
     title: title || "",
-    chapter: chapter?.title || article?.title || "",
+    // Precedence: a page heading that reads like a chapter title, then the
+    // heading inside the extracted block, then any page heading, then whatever
+    // the article extractor guessed.
+    chapter:
+      pageChapter.hinted?.title ||
+      contentChapter?.title ||
+      pageChapter.first?.title ||
+      article?.title ||
+      "",
     author: article?.author || "",
     content,
     language: article?.language || "",
