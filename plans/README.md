@@ -115,6 +115,11 @@ inference queue (nothing shared to serialize) and reports failures by status and
 model only, so a rejected key cannot reach a log. 11 tests cover the request
 shape, the key-never-echoed rule, and the resolution matrix.
 
+Verified live in the container: snapshot → real chapter HTML → Mistral at
+1,551 ms → a selector set that resolves on the live page to the novel title, the
+chapter title, and 1,257 words of content (the same count the server-side
+`div.cha-content` import yields).
+
 ### 2026-09-12 — plan 030 (chrome match deleting the content block)
 
 Found while verifying the plan 029 picker on the live chapter, and a real bug on

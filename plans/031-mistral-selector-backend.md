@@ -56,10 +56,23 @@ device to serialize on.
   the 401 path not echoing the key, malformed and empty replies, and the
   resolution rules including `AI_PROVIDER=mistral` over a set `OLLAMA_URL`.
   31 tests in that file pass; full suite 167 pass / 0 fail, twice.
-- Live against the Mistral API from the running container: `generate-selectors`
-  against a real novel page's HTML, with `AI_PROVIDER=mistral` and the key read
-  from `~/.config/storvi/mistral-key`. Pending the operator putting the key there;
-  the unit tests stand on their own until then.
+- Live from the running container, against the Mistral API: the app's own
+  snapshot route captured a real chapter page (25,604 bytes of HTML), and
+  `POST /projects/generate-selectors` returned in **1,551 ms** (the container log
+  line `selector generation via mistral/mistral-large-latest` is the proof of
+  which backend ran):
+
+  ```json
+  {"title":".cha-hd-mn-text a","chapter":".j_chapName","isChapterInTitle":true,
+   "titleSeparator":"-","content":[".cha-paragraph p"],
+   "urls":{"nextChapter":null,"prevChapter":null}}
+  ```
+
+  Then checked against the live page rather than trusted: `.cha-hd-mn-text a` → 1
+  match, the novel title; `.j_chapName` → 1 match, the chapter title;
+  `.cha-paragraph p` → 21 paragraphs, **1,257 words** — the same count the
+  server-side `div.cha-content` import produces, so the generated selector is a
+  working equivalent.
 
 ## Not done
 
