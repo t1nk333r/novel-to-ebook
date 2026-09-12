@@ -63,10 +63,24 @@ afterAll(() => {
 
 /**
  * Wait for a condition instead of guessing a duration: the worker takes a moment
- * to start, more when other browser tests are running beside this one.
+ * to start, longer when a whole-book import is running beside this test. The
+ * timeout reports what the popup was showing, so a failure names its cause
+ * instead of just "timed out".
  */
-async function waitFor(popup: Page, condition: () => boolean, timeoutMs = 15_000) {
-  await popup.waitForFunction(condition, { timeout: timeoutMs });
+async function waitFor(
+  popup: Page,
+  label: string,
+  condition: () => boolean,
+  timeoutMs = 30_000,
+) {
+  try {
+    await popup.waitForFunction(condition, { timeout: timeoutMs });
+  } catch (error) {
+    const showing = await popup
+      .evaluate(() => document.getElementById("status")?.textContent) 
+      .catch(() => "(popup gone)");
+    throw new Error(`Waiting for ${label} timed out; popup showed: ${showing}`);
+  }
 }
 
 describe.skipIf(!executablePath)("page-side capture functions", () => {
@@ -195,10 +209,13 @@ describe.skipIf(!executablePath)("companion extension", () => {
 
       // Listing projects proves the worker's cross-origin fetch went through —
       // the API sends no CORS headers, so a page-context fetch would have failed.
-      await waitFor(popup, () =>
-        [...document.querySelectorAll("#project option")].some(
-          (option) => option.textContent === "Test Novel",
-        ),
+      await waitFor(
+        popup,
+        "the project list",
+        () =>
+          [...document.querySelectorAll("#project option")].some(
+            (option) => option.textContent === "Test Novel",
+          ),
       );
 
       // A chapter page in another tab, targetable from the popup's tab list.
@@ -215,8 +232,10 @@ describe.skipIf(!executablePath)("companion extension", () => {
         document.getElementById("selector").value = "div.cha-content";
       });
       await popup.click("#send");
-      await waitFor(popup, () =>
-        (document.getElementById("status")?.textContent ?? "").startsWith("Added"),
+      await waitFor(
+        popup,
+        "the capture to be stored",
+        () => (document.getElementById("status")?.textContent ?? "").startsWith("Added"),
       );
 
       expect(captured).toHaveLength(1);

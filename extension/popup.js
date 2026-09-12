@@ -39,8 +39,11 @@ const send = (message) =>
 async function loadConfig() {
   const stored = await chrome.storage.local.get(["serverUrl", "token"]);
   config = { serverUrl: stored.serverUrl || "", token: stored.token || "" };
-  $("serverUrl").value = config.serverUrl;
-  $("token").value = config.token;
+
+  // This lands a few milliseconds after the popup opens, so it must not wipe a
+  // value that is already in the field — the stored value is only the default.
+  if (!$("serverUrl").value) $("serverUrl").value = config.serverUrl;
+  if (!$("token").value) $("token").value = config.token;
 }
 
 async function loadTabs() {
