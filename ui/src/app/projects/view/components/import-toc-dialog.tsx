@@ -30,6 +30,7 @@ import BrowserActionsInput, {
   type BrowserAction,
 } from "./browser-actions-input";
 import { searchChapters } from "@/lib/utils";
+import { cleanLinkTitle } from "../lib/link-title";
 import { streamSSE } from "@/lib/sse";
 import { toast } from "sonner";
 import { createDisclosure } from "@/lib/store";
@@ -152,12 +153,12 @@ export default function ImportTOCDialog() {
 
     $(linkSelector).each((_, el) => {
       const $el = $(el);
-      let title = $el.text().trim();
+      let title = cleanLinkTitle($el.text());
       let url = $el.attr("href") || "";
 
       if (titleSelector.length > 0) {
         const titleTxt = $el.find(titleSelector).text().trim();
-        if (titleTxt.length > 0) title = titleTxt;
+        if (titleTxt.length > 0) title = cleanLinkTitle(titleTxt);
       }
 
       if (!url.startsWith("http")) url = new URL(pageData.url).origin + url;
