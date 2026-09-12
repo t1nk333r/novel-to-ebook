@@ -17,7 +17,7 @@ const BRACKETED_TIME = new RegExp(`\\s*[([{]\\s*${TIME_AGO}\\s*[)\\]}]$`, "i");
 const TRAILING_TIME = new RegExp(`\\s*[-–—,:;]?\\s*${TIME_AGO}$`, "i");
 
 /** Separators left dangling once the timestamp is gone. */
-const TRAILING_SEPARATOR = /[\s–—,;:.\-]+$/;
+const TRAILING_SEPARATOR = /[\s–—,;:.-]+$/;
 
 export function cleanLinkTitle(raw: string) {
   let title = raw.replace(/\s+/g, " ").trim();
