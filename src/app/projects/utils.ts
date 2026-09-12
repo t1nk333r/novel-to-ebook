@@ -1070,9 +1070,35 @@ export async function collectScrolledChapters(
       return null;
     };
 
+    // Sites that stamp nothing on the wrapper (every WordPress serial and most
+    // custom readers) name the chapter in the URL instead. Only usable when the
+    // page holds exactly one chapter: with several matches and no per-chapter id
+    // they would all collapse onto the same key.
+    //
+    // Inlined on purpose, like `getSelector` and `getCleanHTML`: this function is
+    // stringified and run inside the page, so it cannot reference module scope.
+    // The server-side twin is `chapterIdFromUrl` in `book-import.ts`, and
+    // `tests/scroll-import.test.ts` asserts the two agree on the same URL.
+    const urlId = (() => {
+      if (matches.length !== 1) return null;
+      const nonChapter =
+        /\/(?:page|comments?|feed|category|categories|tag|tags|author|search|attachment)\//i;
+      const path = location.pathname;
+      if (nonChapter.test(path)) return null;
+      const segment = path.replace(/\/+$/, "").split("/").pop() ?? "";
+      if (!segment || segment.length > 120) return null;
+      if (!/^[a-z0-9][a-z0-9._-]*$/i.test(segment)) return null;
+      if (/^\d+$/.test(segment)) return segment;
+      if (!/[a-z]/i.test(segment)) return null;
+      if (!/\d/.test(segment) && !/(?:^|[^a-z])(?:ch|chap|chapter|part|vol|volume|ep|episode|prologue|epilogue|interlude|side[-_]?story|extra|bonus|afterword)(?:$|[^a-z\d])/i.test(segment)) {
+        return null;
+      }
+      return segment.toLowerCase();
+    })();
+
     return matches.map((el) => ({
       title: titleFor(el),
-      id: idFor(el),
+      id: idFor(el) ?? urlId,
       html: el.outerHTML,
     }));
   }, list)) as { title: string | null; id: string | null; html: string }[];

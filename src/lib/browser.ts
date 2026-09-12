@@ -33,8 +33,17 @@ export async function getBrowser(opt?: { headless?: boolean }) {
   // Chromium whose handle was then overwritten — leaking a process for the
   // life of the server.
   browserPromise ??= (async () => {
+    // `puppeteer-extra` delegates to puppeteer-core directly, so the env var
+    // puppeteer itself honours (`PUPPETEER_EXECUTABLE_PATH`) does not always
+    // reach it — "An executablePath or channel must be specified" at launch,
+    // intermittently and per process. Passing it here removes the dependency on
+    // that plumbing, and falls back to puppeteer's own resolution when unset
+    // (the container image sets it; a dev machine may have a downloaded Chrome).
+    const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH?.trim();
+
     const launched = await puppeteer.use(StealthPlugin()).launch({
       headless: opt?.headless ?? true,
+      ...(executablePath ? { executablePath } : {}),
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",

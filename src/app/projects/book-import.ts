@@ -26,6 +26,15 @@ const CHAPTER_URL = /\/book\/[^/]+\/([^/]+)_(\d{6,})\/?$/;
 /** Per-row chrome: the "latest chapter" promo link, not a list entry. */
 const PROMO_CLASS = /(lst[-_]chapter|latest[-_]chapter|j_latest)/i;
 
+/**
+ * Site furniture that holds links which look like chapters but are not: menus
+ * (other novels' landing pages), comment widgets, sidebars. Measured on a real
+ * WordPress serial: of its 20 non-chapter links, 17 sat inside one of these and
+ * of its 250 chapter links, none did.
+ */
+const CHROME_TAG = /^(nav|header|footer|aside)$/i;
+const CHROME_CLASS = /(^|[-_])(menu|widget|sidebar|navigation|nav|breadcrumb)([-_]|$)/i;
+
 const TIME_AGO =
   "(?:\\d+\\s*(?:years?|months?|weeks?|days?|hours?|minutes?|mins?|seconds?|secs?)\\s+ago|just\\s+now)";
 const BRACKETED_TIME = new RegExp(`\\s*[([{]\\s*${TIME_AGO}\\s*[)\\]}]$`, "i");
@@ -59,8 +68,69 @@ export function cleanImportedTitle(raw: string) {
   return title.replace(TRAILING_SEPARATOR, "").trim();
 }
 
+/**
+ * `/book/<slug>_<id>` — Webnovel's *book* page, which ends in an id exactly like
+ * its chapter URLs do. The generic rule below must not read it as a chapter, or
+ * a catalogue's "book home" link becomes chapter zero.
+ */
+const BOOK_URL = /\/book\/[^/]+_\d{6,}\/?$/;
+
 export function chapterIdFromUrl(url: string) {
-  return url.match(CHAPTER_URL)?.[2] ?? null;
+  const webnovel = url.match(CHAPTER_URL);
+  if (webnovel) return webnovel[2];
+  if (BOOK_URL.test(pathOf(url))) return null;
+
+  return genericChapterId(url);
+}
+
+/**
+ * Path segments that are never a chapter. A catalogue page is full of links —
+ * menus, archives, comment anchors, the book's own page — and every one of them
+ * has *a* last segment, so the id has to come with a guard or the walk would
+ * import a site's sidebar.
+ */
+const NON_CHAPTER_PATH =
+  /\/(?:page|comments?|feed|category|categories|tag|tags|author|search|attachment)\//i;
+
+/** Relative hrefs are the common case inside a catalogue: never throw on them. */
+function pathOf(url: string) {
+  try {
+    return new URL(url, "http://relative.invalid").pathname;
+  } catch {
+    return "";
+  }
+}
+
+/** Words that mark a segment as a chapter even without a number ("prologue"). */
+const CHAPTER_WORD =
+  /(?:^|[^a-z])(?:ch|chap|chapter|part|vol|volume|ep|episode|prologue|epilogue|interlude|side[-_]?story|extra|bonus|afterword)(?:$|[^a-z\d])/i;
+
+/**
+ * Sites that put no id in the URL — every WordPress serial, most custom readers
+ * — still need one: it is what makes a run resumable and what matches a chapter
+ * read off a reader page to its catalogue entry. The last path segment serves,
+ * when it plausibly names a chapter rather than a part of the site.
+ */
+function genericChapterId(url: string) {
+  const path = pathOf(url);
+
+  if (NON_CHAPTER_PATH.test(path)) return null;
+
+  const segment = path.replace(/\/+$/, "").split("/").pop() ?? "";
+  if (!segment || segment.length > 120) return null;
+  if (!/^[a-z0-9][a-z0-9._-]*$/i.test(segment)) return null;
+
+  const isNumber = /^\d+$/.test(segment);
+  const hasNumber = /\d/.test(segment);
+  const hasLetter = /[a-z]/i.test(segment);
+
+  // "2" is a chapter id on some readers and page 2 of an archive elsewhere;
+  // `/page/` is already excluded above, so a bare number is taken as an id.
+  if (isNumber) return segment;
+  if (!hasLetter) return null;
+  if (!hasNumber && !CHAPTER_WORD.test(segment)) return null;
+
+  return segment.toLowerCase();
 }
 
 /**
@@ -111,14 +181,26 @@ export function parseCatalogChapters(html: string, baseUrl: string) {
   $("a[href]").each((_, el) => {
     const $el = $(el);
     const href = $el.attr("href") ?? "";
+
+    // Chapters live on the site being catalogued. WordPress.com serials carry
+    // utility links to its own reader on a different host, and those are not
+    // chapters of anything.
+    if (/^https?:\/\//i.test(href) && !href.startsWith(origin)) return;
+
     const id = chapterIdFromUrl(href);
     if (!id || seen.has(id)) return;
 
     const chain = [$el.attr("class") ?? ""];
+    let inChrome = false;
     $el.parents().each((__, parent) => {
-      chain.push($(parent).attr("class") ?? "");
+      const $parent = $(parent);
+      chain.push($parent.attr("class") ?? "");
+      if (CHROME_TAG.test((parent as { tagName?: string }).tagName ?? "")) {
+        inChrome = true;
+      }
     });
-    if (chain.some((value) => PROMO_CLASS.test(value))) return;
+    if (inChrome) return;
+    if (chain.some((value) => PROMO_CLASS.test(value) || CHROME_CLASS.test(value))) return;
 
     const title = rowTitle($, $el);
     if (!title) return;

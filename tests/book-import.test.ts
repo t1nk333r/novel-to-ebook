@@ -80,6 +80,58 @@ describe("chapter identity", () => {
     expect(chapterIdFromUrl("/book/endless_11766562205519505")).toBeNull();
   });
 
+  test("reads the id from a URL that has no id in it", () => {
+    // Most sites are not Webnovel: a WordPress serial names its chapters by slug.
+    // Without this the whole-book walk finds zero chapters outside one site.
+    expect(
+      chapterIdFromUrl("https://negaraizu.wordpress.com/2017/12/02/glutton-berserker-ch-1"),
+    ).toBe("glutton-berserker-ch-1");
+    expect(
+      chapterIdFromUrl("/2019/08/25/glutton-berserker-ch-123"),
+    ).toBe("glutton-berserker-ch-123");
+    expect(chapterIdFromUrl("https://x.test/read/12345/")).toBe("12345");
+    expect(chapterIdFromUrl("https://x.test/novel/prologue/")).toBe("prologue");
+  });
+
+  test("does not mistake site furniture for a chapter", () => {
+    // A catalogue page is full of links. Every one of them has a last path
+    // segment; reading one as a chapter imports a site's menu.
+    for (const url of [
+      "https://x.test/page/2/",
+      "https://x.test/category/glutton-berserker/",
+      "https://x.test/glutton-berserker/",
+      "https://x.test/2026/08/05/patron-post-thank-you/comments",
+      "https://x.test/feed/",
+      "https://x.test/",
+    ]) {
+      expect(chapterIdFromUrl(url)).toBeNull();
+    }
+  });
+
+  test("ignores links that leave the site being catalogued", () => {
+    const html = `
+      <div class="entry-content">
+        <a href="/2020/01/01/some-novel-ch-1">Chapter 1</a>
+        <a href="https://wordpress.com/reader/12345">View post in Reader</a>
+      </div>`;
+    const chapters = parseCatalogChapters(html, "https://x.test/some-novel/");
+
+    expect(chapters).toHaveLength(1);
+    expect(chapters[0]?.url).toBe("https://x.test/2020/01/01/some-novel-ch-1");
+  });
+
+  test("ignores links inside menus, sidebars and comment widgets", () => {
+    const html = `
+      <nav><a href="/other-novel-ch-1">Another Novel</a></nav>
+      <aside><a href="/2020/01/01/sidebar-novel-ch-2">Related</a></aside>
+      <div class="widget"><a href="/2020/01/01/widget-novel-ch-3">Recent</a></div>
+      <div class="entry-content"><a href="/2020/01/01/real-novel-ch-4">Chapter 4</a></div>`;
+    const chapters = parseCatalogChapters(html, "https://x.test/some-novel/");
+
+    expect(chapters).toHaveLength(1);
+    expect(chapters[0]?.title).toBe("Chapter 4");
+  });
+
   test("reads the id from the reader's per-chapter wrapper class", () => {
     expect(
       chapterIdFromClassName(

@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { chapterIdFromUrl } from "../src/app/projects/book-import";
 import { collectScrolledChapters } from "../src/app/projects/utils";
 import { findBrowser, launchBrowser } from "./browser";
 
@@ -44,10 +45,21 @@ function chapter(n: number) {
   </div>`;
 }
 
+/** One chapter, no id in the markup — what a WordPress serial serves. */
+const SINGLE_PATH = "/2020/01/01/demo-novel-ch-7";
+const singleChapter = `<!doctype html><html><body>
+  <h1>Demo Novel ch.7</h1>
+  <div class="entry-content"><p>Body seven.</p></div>
+</body></html>`;
+
 const server = Bun.serve({
   port: PORT,
   hostname: "127.0.0.1",
-  fetch: () => new Response(page(), { headers: { "content-type": "text/html" } }),
+  fetch: (request) =>
+    new Response(
+      new URL(request.url).pathname === SINGLE_PATH ? singleChapter : page(),
+      { headers: { "content-type": "text/html" } },
+    ),
 });
 
 afterAll(() => {
@@ -55,6 +67,30 @@ afterAll(() => {
 });
 
 describe.skipIf(!executablePath)("collectScrolledChapters", () => {
+  test("takes the id from the URL when the page holds one chapter and stamps no id", async () => {
+    if (!executablePath) return;
+    const browser = await launchBrowser(executablePath);
+
+    try {
+      const tab = await browser.newPage();
+      await tab.goto(`http://127.0.0.1:${PORT}${SINGLE_PATH}`, { waitUntil: "load" });
+
+      const chapters = await collectScrolledChapters(tab, ".entry-content", {
+        maxScrolls: 0,
+      });
+
+      expect(chapters).toHaveLength(1);
+      expect(chapters[0]?.title).toContain("ch.7");
+      // The in-page rule and the server's catalogue rule have to agree, or a
+      // chapter read off a page can never match its catalogue entry — which is
+      // what made every non-Webnovel walk import nothing.
+      expect(chapters[0]?.id).toBe(chapterIdFromUrl(SINGLE_PATH));
+      expect(chapters[0]?.id).toBe("demo-novel-ch-7");
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+
   test("scrolls until the page stops growing and returns every chapter in order", async () => {
     if (!executablePath) return;
     const browser = await launchBrowser(executablePath);
