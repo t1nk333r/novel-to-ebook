@@ -1,5 +1,7 @@
 import type { paths } from "./api.schema";
 import { API_URL, type JsonBody } from "./api";
+import { apiAuthHeader } from "./api-auth";
+import { getApiToken, reportUnauthorized } from "@/stores/auth.store";
 
 export async function streamSSE<
   TKey extends keyof paths,
@@ -14,16 +16,19 @@ export async function streamSSE<
 ) {
   const { onMessage, body, headers, ...opts } = options || {};
 
-  const res = await fetch(API_URL + url, {
+  const target = API_URL + url;
+  const res = await fetch(target, {
     ...opts,
     method,
     body: typeof body === "object" ? JSON.stringify(body) : body,
     headers: {
       "Content-Type": typeof body === "object" ? "application/json" : undefined,
       ...(headers || {}),
+      ...apiAuthHeader(target, window.location.origin, getApiToken()),
     },
     responseType: "stream",
   } as never);
+  if (res.status === 401) reportUnauthorized();
   if (!res.ok) throw new Error(res.statusText);
 
   const reader = res.body!.getReader();

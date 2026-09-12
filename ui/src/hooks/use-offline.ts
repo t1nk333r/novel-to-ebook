@@ -1,6 +1,8 @@
 import { $api, API_URL } from "@/lib/api";
+import { apiAuthHeader } from "@/lib/api-auth";
 import type { paths } from "@/lib/api.schema";
 import { getDB, type CachedBook } from "@/lib/db";
+import { getApiToken, reportUnauthorized } from "@/stores/auth.store";
 import { useEffect, useState } from "react";
 
 function createApiCacheKey(method: string, path: string, options?: any) {
@@ -65,7 +67,9 @@ export async function getOfflineImage(
   }
 
   try {
-    const res = await fetch(url);
+    const header = apiAuthHeader(url, window.location.origin, getApiToken());
+    const res = await fetch(url, header ? { headers: header } : undefined);
+    if (res.status === 401) reportUnauthorized();
     if (!res.ok) throw new Error("network");
 
     const blob = await res.blob();
@@ -95,16 +99,24 @@ async function fetchBook(
   key: string,
   conditional?: { etag: string | null; lastModified: string | null },
 ): Promise<FetchBookResult> {
-  const headers: Record<string, string> = {};
+  const target = API_URL + "/library/get?key=" + encodeURIComponent(key);
+  const headers: Record<string, string> = {
+    ...apiAuthHeader(target, window.location.origin, getApiToken()),
+  };
   if (conditional?.etag) headers["If-None-Match"] = conditional.etag;
   if (conditional?.lastModified) {
     headers["If-Modified-Since"] = conditional.lastModified;
   }
 
   const res = await fetch(
-    API_URL + "/library/get?key=" + encodeURIComponent(key),
+    target,
     Object.keys(headers).length ? { headers } : undefined,
   );
+
+  if (res.status === 401) {
+    reportUnauthorized();
+    throw new Error("Unauthorized");
+  }
 
   if (res.status === 304) {
     return { status: "not-modified" };

@@ -2,12 +2,14 @@ import { useEffect } from "react";
 import Router from "./router";
 import { useStore } from "zustand";
 import { appStore } from "./stores/app.store";
+import TokenGate from "./components/token-gate";
 
 export default function App() {
   return (
     <>
       <Router />
       <ThemeProvider />
+      <TokenGate />
     </>
   );
 }
