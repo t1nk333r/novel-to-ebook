@@ -923,6 +923,10 @@ const CHROME_PATTERNS = [
   /(^|[-_])promo(tion)?([-_]|$)/i,
   /(^|[-_])related([-_]|$)/i,
   /user[-_]links/i,
+  // WordPress.com's Jetpack widgets: every post ends with "Like Loading..."
+  // otherwise, and the sharing strip sits between the chapter and its comments.
+  /(^|[-_])sharedaddy([-_]|$)/i,
+  /(^[-_]?)likes?([-_]|$)/i,
 ];
 
 function isChromeToken(value: string | undefined) {

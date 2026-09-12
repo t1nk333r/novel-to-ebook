@@ -96,6 +96,30 @@ describe("stripSiteChrome", () => {
     expect(removed).toBe(1);
   });
 
+  test("removes WordPress.com's like and share widgets", () => {
+    // Jetpack's markup, trimmed: the real class list is
+    // `sharedaddy sd-block sd-like jetpack-likes-widget-wrapper …`.
+    const { html, removed } = stripSiteChrome(`
+<div class="entry-content">
+  <p>The chapter prose, which must survive intact.</p>
+  <div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper" id="like-post-wrapper-104231213-3623">
+    <div class="likes-widget-placeholder post-likes-widget-placeholder">
+      <span class="button"><span>Like</span></span> <span class="loading">Loading...</span>
+    </div>
+  </div>
+  <div class="sharedaddy sd-sharing-enabled">
+    <ul class="share-end"><li><span>Facebook</span></li></ul>
+  </div>
+</div>`);
+
+    expect(html).toContain("must survive intact");
+    expect(html).not.toContain("Loading...");
+    expect(html).not.toContain("Facebook");
+    // The nested placeholder matches too, so the count is a floor, not a total:
+    // cheerio still visits children of a removed node.
+    expect(removed).toBeGreaterThanOrEqual(2);
+  });
+
   test("can empty content entirely when every block is furniture", () => {
     const { html, removed } = stripSiteChrome(
       `<div class="cha-content"><div class="m-thou">note</div></div>`,
