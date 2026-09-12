@@ -15,6 +15,47 @@
 - **Depends on**: `plans/020-multi-select-content.md` (landed)
 - **Category**: bug
 - **Planned at**: commit `04dfe0e`, 2026-09-12
+- **Resolved**: 2026-09-12 — see "Resolution" below
+
+## Resolution 2026-09-12
+
+**The Save button was never dead.** It looked dead because client-side validation
+failed silently and `handleSubmit` therefore never ran the submit handler.
+
+The Add Chapter form's zod schema required `selector: z.string()`, but the picker
+submits an ordered **array** of picked blocks (plan 020). Every picked selection
+was rejected by the resolver, and the form had no `onInvalid` handler, so nothing
+happened at all: no request, no error, no toast. It worked only when the selector
+was hand-typed as a string, which is why the fresh-flow test passed and every
+picker test failed.
+
+Fixed by:
+
+- widening the form schema to `z.union([z.string(), z.string().array()]).nullish()`,
+  mirroring the API contract;
+- adding an `onInvalid` handler that names the offending field (the missing
+  feedback is what made this expensive to find);
+- making the URL input controlled, so it repopulates when the dialog remounts
+  after a pick instead of showing an empty box over a populated form;
+- removing a `useEffect([open])` that wiped the URL on every reopen, and moving
+  the reset to the create-success path instead.
+
+Two earlier changes in the same area also stand, but for the separate defect they
+address: the picker unmounts while closed, and the Add Chapter dialog closes
+instead of stacking under it — the closed picker's Radix layer really did stay
+mounted with `pointer-events: auto` and made the dialog below unclickable.
+
+Proven end to end afterwards: pick `h1` + `p:nth-of-type(2)` in the picker, save,
+and the created chapter contains both blocks
+(`<h1>Example Domain</h1>` and the `<p>` link paragraph).
+
+**A wrong hypothesis is recorded here so it is not repeated.** This plan
+originally described the dialog's DOM as orphaned from React because native click
+and submit events fired without reaching React handlers. That was wrong: the
+Close button worked the whole time, and once `onInvalid` existed the toast proved
+the submit path was reaching React and failing validation. The lesson is the same
+one the repo keeps relearning — the absence of feedback was mistaken for dead
+code.
 
 ## Why this matters
 

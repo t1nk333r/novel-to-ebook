@@ -24,7 +24,7 @@ import {
   NotebookPenIcon,
   SquareDashedMousePointerIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import z from "zod";
 import { useProjectContext } from "../lib/context";
@@ -44,7 +44,11 @@ const schema = z.union([
   z.object({
     type: z.literal("link"),
     url: z.url().min(1),
-    selector: z.string().nullish(),
+    // Mirrors the API contract: a hand-typed selector is a string, the picker
+    // submits the ordered list of picked blocks. A string-only schema here
+    // rejected every picked selection, and the resolver failure surfaced as a
+    // Save button that did nothing.
+    selector: z.union([z.string(), z.string().array()]).nullish(),
   }),
   z.object({ type: z.null() }),
 ]);
@@ -60,11 +64,13 @@ export default function AddChapterModal() {
   });
   const type = useWatch({ control: form.control, name: "type" });
   const selectorValue = useWatch({ control: form.control, name: "selector" });
+  const urlValue = useWatch({ control: form.control, name: "url" });
   const [isPending, setPending] = useState(false);
 
   const create = $api.useMutation("post", "/projects/{projectId}/chapters", {
     onSuccess(data) {
       addChapterModal.setOpen(false);
+      form.reset({ type: null });
       invalidateQuery("/projects/{projectId}/chapters");
       openEditorTab(data);
     },
@@ -73,16 +79,14 @@ export default function AddChapterModal() {
     },
   });
 
-  useEffect(() => {
-    if (open) {
-      // form.setValue("type", null);
-      form.setValue("url", "");
-    }
-  }, [open]);
-
-  const onSubmit = form.handleSubmit(async (values) => {
-    const body: CreateChapterBody = { title: "", content: "", index: 0 };
-    let obfuscated: FontDecryptData | null = null;
+  // Deliberately no reset on open: this dialog is closed and reopened around the
+  // selector picker, and clearing the URL there meant the reopened form failed
+  // validation silently — Save appeared to do nothing at all. The form is reset
+  // after a successful create instead.
+  const onSubmit = form.handleSubmit(
+    async (values) => {
+      const body: CreateChapterBody = { title: "", content: "", index: 0 };
+      let obfuscated: FontDecryptData | null = null;
 
     try {
       setPending(true);
@@ -139,10 +143,27 @@ export default function AddChapterModal() {
     } finally {
       setPending(false);
     }
-  });
+    },
+    // A silent validation failure is how a picked selector looked like a dead
+    // Save button. Name the field so the next one is obvious.
+    (errors) => {
+      const fields = Object.keys(errors);
+      toast.error(
+        fields.length
+          ? `Check the ${fields.join(" and ")} field${fields.length > 1 ? "s" : ""}`
+          : "Fill in the form before saving",
+      );
+    },
+  );
+
+  // Mounted only while open. A dialog closed in the same tick as another opens
+  // never finishes its exit animation, so Radix left it mounted with its layer
+  // still active — which made the dialog opened next unclickable (see plan 025).
+  // The component itself stays mounted, so the form state survives.
+  if (!open) return null;
 
   return (
-    <Dialog open={open} onOpenChange={addChapterModal.setOpen}>
+    <Dialog open onOpenChange={addChapterModal.setOpen}>
       <DialogContent>
         <DialogHeader>
           <div className="flex items-center gap-1">
@@ -217,7 +238,8 @@ export default function AddChapterModal() {
                     <InputGroupInput
                       autoFocus
                       placeholder="https://"
-                      {...form.register("url")}
+                      value={urlValue ?? ""}
+                      onChange={(e) => form.setValue("url", e.target.value)}
                     />
                   </InputGroup>
                 </Field>

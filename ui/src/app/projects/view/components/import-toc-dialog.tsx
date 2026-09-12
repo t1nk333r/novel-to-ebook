@@ -216,8 +216,12 @@ export default function ImportTOCDialog() {
     );
   };
 
+  // See add-chapter-modal: closing in the same tick as another dialog opens
+  // otherwise leaves this one mounted with its layer still active.
+  if (!open) return null;
+
   return (
-    <Dialog open={open} onOpenChange={importTOCModal.setOpen}>
+    <Dialog open onOpenChange={importTOCModal.setOpen}>
       <DialogContent className="md:max-w-[calc(100vw-4rem)]">
         <DialogHeader>
           <DialogTitle>Import Table of Contents</DialogTitle>

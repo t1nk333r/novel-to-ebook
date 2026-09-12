@@ -33,7 +33,7 @@ status here.
 | 022 | Add a local Ollama backend for AI selector generation | P3 | M | 021 | TODO |
 | 023 | Let the web UI authenticate with the API bearer token | P1 | M | 004 | DONE (verified 2026-09-02) |
 | 024 | Validate every Chromium navigation, not just the entry URL | P1 | M-L | 005 | TODO |
-| 025 | Finish the picker → save flow (stacked Radix dialogs) | P1 | S-M | 020 | TODO |
+| 025 | Finish the picker → save flow (stacked Radix dialogs) | P1 | S-M | 020 | DONE (verified 2026-09-12 — silent validation, not a dead dialog; see the plan's Resolution) |
 | 026 | Stop the EPUB exporter fetching arbitrary URLs | P2 | S | 005 | TODO |
 
 Status values: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED`, or `REJECTED`.
@@ -93,6 +93,33 @@ finished work — see the commit for the starvation measurement; plus the browse
 launch race, the out-of-policy font fetch, the silently swallowed scan failure,
 the reorder/NOT NULL race, the cross-project import stream, and two UI
 robustness fixes. `tests/queue-manager.test.ts` pins the queue contract.
+
+### 2026-09-12 — plan 025 resolved (and an earlier diagnosis corrected)
+
+Saving after a pick now works, proven end to end: pick `h1` and
+`p:nth-of-type(2)` in the picker, save, and the chapter contains both blocks.
+
+The cause was **not** the dead React tree this repo's earlier entry in this log
+described. The Add Chapter form's zod schema still required `selector: z.string()`
+while the picker (plan 020) submits an array, so the resolver rejected every
+picked selection and — with no `onInvalid` handler — `handleSubmit` never ran its
+submit function. No request, no error, no toast: a Save button that appeared
+dead. Hand-typing a selector still worked, which is exactly why the fresh-flow
+test passed and every picker test failed.
+
+Fixed by widening the form schema to accept a string or a list (mirroring the API
+contract), adding `onInvalid` feedback that names the offending field, making the
+URL input controlled so it repopulates after the dialog remounts, and removing a
+`useEffect([open])` that wiped the URL on every reopen.
+
+Two changes from the previous entry remain, for the separate defect they address:
+the picker unmounts while closed, and the Add Chapter dialog closes rather than
+stacking under it — the closed picker's layer really did stay mounted with
+`pointer-events: auto` and made the dialog below unclickable.
+
+Recorded because it cost real time: the missing feedback was mistaken for dead
+code, and the wrong hypothesis was written into plan 025 before being disproved.
+When a control looks unresponsive, check that the failure is not simply silent.
 
 ### 2026-09-02 — plan 008 step 3 executed
 
