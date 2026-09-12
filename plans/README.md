@@ -37,6 +37,7 @@ status here.
 | 026 | Stop the EPUB exporter fetching arbitrary URLs | P2 | S | 005 | DONE (verified 2026-09-12 — reproduced a local-file read into the EPUB) |
 | 027 | Import the chapters a reader page loads while scrolling | P2 | M | 020, 021 | DONE (verified 2026-09-12 — 7 chapters from one URL, 13 through the UI) |
 | 028 | Import a whole book, resuming where it stopped | P2 | M | 027 | DONE (verified 2026-09-12 — 13 chapters in 20s, resume with no duplicates) |
+| 029 | Companion browser extension | P2 | M | 023, 027, 028 | DONE (verified 2026-09-12 — real page captured with no server browser) |
 
 Status values: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED`, or `REJECTED`.
 `DONE (verified …)` means the done criteria were re-checked against the working
@@ -95,6 +96,26 @@ finished work — see the commit for the starvation measurement; plus the browse
 launch race, the out-of-policy font fetch, the silently swallowed scan failure,
 the reorder/NOT NULL race, the cross-project import stream, and two UI
 robustness fixes. `tests/queue-manager.test.ts` pins the queue contract.
+
+### 2026-09-12 — plan 029 executed (companion extension, v0.1)
+
+The operator's idea, built and verified the same day. The extension captures the
+page from the user's own browser and posts it, so the server's headless Chromium
+is never started — which is the point: sites that fingerprint automation stop
+being a problem, and the capture is instant.
+
+Step 0's assumptions were measured first: the service worker's cross-origin fetch
+needs no CORS headers (a content-script fetch would have been blocked), and the
+create route ignores a posted `index`. One claim of the plan turned out wrong:
+the existing create route does **no sanitising**, so a capture route was added to
+run `stripSiteChrome` + `cleanHTML` server-side — otherwise a page's scripts and
+navigation would have reached the exported book.
+
+Evidence: on the real Webnovel chapter, with no server browser involved, the
+popup captured and stored a 1,257-word chapter identical in content to the
+server-side import of the same chapter, with scripts, author note and comment
+widget gone. `tests/extension.test.ts` loads the extension into a real Chromium
+and pins the worker fetch and the capture path.
 
 ### 2026-09-12 — plan 028 executed (whole-book walk, recorded post hoc)
 

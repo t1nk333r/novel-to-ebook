@@ -2,6 +2,9 @@ import { Hono } from "hono";
 import { openApi } from "hono-zod-openapi";
 import { ChapterSchema, CreateChapterSchema } from "./schema";
 import { contentSelectorList } from "../schema";
+import { cleanHTML } from "../../../lib/utils";
+import { cleanImportedTitle } from "../book-import";
+import { stripSiteChrome } from "../utils";
 import db from "../../../db";
 import { uuid, waitFor } from "../../../lib/utils";
 import z from "zod";
@@ -16,6 +19,7 @@ import { streamSSE } from "hono/streaming";
 import { importQueue } from "./context";
 import { sql } from "kysely";
 import { limits } from "../../../lib/limits";
+import { HTTPError } from "../../../lib/error";
 
 const router = new Hono();
 
@@ -296,6 +300,47 @@ router.post(
     });
 
     return c.var.res({ taskId: res.id });
+  },
+);
+
+// Store a chapter captured by a client (the companion extension) from a page it
+// rendered itself. The image that ships `src/` and `ui/dist` only means the
+// sanitizer has to run here: a captured page carries scripts, ads and navigation
+// that the editor's HTML never does, and all of it would otherwise reach the
+// exported book.
+router.post(
+  "/capture",
+  openApi({
+    tags: ["Projects"],
+    summary: "Store a chapter captured from a rendered page",
+    request: {
+      param: z.object({ projectId: z.string() }),
+      json: z.object({
+        title: z.string().min(1).max(1_000),
+        html: z.string().min(1).max(limits.textLength),
+        url: z.url().nullish(),
+      }),
+    },
+    responses: { 200: ChapterSchema.pick({ id: true, title: true }) },
+  }),
+  async (c) => {
+    const { projectId } = c.req.valid("param");
+    const { title, html } = c.req.valid("json");
+
+    const content = cleanHTML(stripSiteChrome(html).html);
+    if (!content.trim()) {
+      throw new HTTPError("Nothing usable left after cleaning the capture", {
+        status: 400,
+        code: "EMPTY_CAPTURE",
+      });
+    }
+
+    const res = await insertChapterAtNextIndex(projectId, {
+      title: cleanImportedTitle(title),
+      content,
+    });
+
+    return c.var.res({ id: res.id, title: res.title });
   },
 );
 

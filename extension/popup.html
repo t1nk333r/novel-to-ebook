@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Send to Storvi</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        width: 22rem;
+        margin: 0;
+        padding: 0.75rem;
+        font: 13px/1.5 system-ui, sans-serif;
+      }
+      h1 { font-size: 13px; margin: 0 0 0.5rem; }
+      label { display: block; margin-bottom: 0.5rem; }
+      span.field { display: block; font-size: 11px; opacity: 0.7; margin-bottom: 2px; }
+      input, select, button {
+        width: 100%;
+        box-sizing: border-box;
+        font: inherit;
+        padding: 4px 6px;
+        border-radius: 4px;
+        border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+        background: transparent;
+        color: inherit;
+      }
+      button { cursor: pointer; margin-bottom: 0.4rem; }
+      button.primary { font-weight: 600; }
+      button:disabled { opacity: 0.5; cursor: default; }
+      .row { display: flex; gap: 0.4rem; }
+      .row button { margin-bottom: 0.4rem; }
+      #status { font-size: 11px; min-height: 2.5em; white-space: pre-wrap; opacity: 0.85; }
+      #status.error { color: #c0392b; }
+      #status.ok { color: #1e8449; }
+      details { margin-top: 0.5rem; font-size: 11px; opacity: 0.8; }
+      code { font-size: 10px; }
+    </style>
+  </head>
+  <body>
+    <h1>Send to Storvi</h1>
+
+    <label>
+      <span class="field">Server URL</span>
+      <input id="serverUrl" placeholder="http://127.0.0.1:3000" />
+    </label>
+    <label>
+      <span class="field">API token</span>
+      <input id="token" type="password" autocomplete="off" placeholder="from API_TOKEN" />
+    </label>
+    <label>
+      <span class="field">Project</span>
+      <select id="project"><option value="">— save the connection first —</option></select>
+    </label>
+    <label>
+      <span class="field">Page to capture</span>
+      <select id="tab"></select>
+    </label>
+    <label>
+      <span class="field">Content selector (learned per site)</span>
+      <input id="selector" placeholder="not set for this site" />
+    </label>
+
+    <div class="row">
+      <button id="save">Save</button>
+      <button id="pick">Pick content</button>
+    </div>
+    <button id="send" class="primary">Send chapter</button>
+    <button id="book">Import the whole book</button>
+
+    <div id="status"></div>
+
+    <details>
+      <summary>How this works</summary>
+      <p>
+        The page is captured in your own browser and posted to your Storvi server,
+        which cleans it like any other import. The token is used by the extension's
+        background worker and stored locally on this machine.
+      </p>
+    </details>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

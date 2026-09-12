@@ -95,6 +95,7 @@ git submodule update --init --recursive     # only if pnpm build fails
 | 026 | Exporter image URLs | DONE — was reading local files into the EPUB |
 | 027 | Scroll-loaded chapter import | DONE — one URL, every chapter the page loads |
 | 028 | Whole-book walk | DONE — catalogue list + reader pages, resumable |
+| 029 | Companion extension | DONE — captures in the user's browser, no server Chromium |
 
 `plans/README.md` holds the full reconciliation log with per-plan evidence.
 

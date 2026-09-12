@@ -62,6 +62,7 @@ is stored (`ui/src/lib/api-auth.ts`); a 401 anywhere opens the token gate.
 | `ui/src/lib/` | Transport and offline: `api.ts`, `api-auth.ts`, `sse.ts`, `db.ts`, `store.ts`, `queryClient.ts` |
 | `ui/src/hooks/`, `ui/src/stores/` | Cross-feature hooks; app-wide zustand stores (`app.store.ts`, `auth.store.ts`) |
 | `tests/` | All Bun tests, server **and** UI code alike |
+| `extension/` | Manifest V3 companion extension (plain ES modules, no build step); outside `pnpm check` by design |
 | `plans/` | Numbered implementation plans + `plans/README.md` status index |
 
 Do not edit: `ui/src/lib/foliate-js/` (git submodule), `ui/src/components/ui/` (generated shadcn),

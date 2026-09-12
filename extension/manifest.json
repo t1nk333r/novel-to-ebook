@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Storvi capture",
+  "version": "0.1.0",
+  "description": "Send the chapter you are reading to your Storvi library.",
+  "permissions": ["storage", "scripting", "tabs"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*", "http://[::1]/*"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Send to Storvi"
+  }
+}
