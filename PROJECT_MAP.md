@@ -1,6 +1,7 @@
 # Storvi project map
 
-Updated: 2026-08-30. Implementation baseline: `5b03d47`.
+Updated: 2026-09-02. Implementation baseline: `a505f3a` plus the uncommitted
+plan-023 work (UI bearer-token transport).
 
 ## [TECH_STACK]
 
@@ -35,7 +36,8 @@ flow without public network, real user data, or secret credentials.
 
 - `src/index.ts`: configuration, middleware composition, ordered bootstrap.
 - `src/app/*/routes.ts`: validated HTTP boundaries; route code stays thin.
-- `src/app/*/repository.ts` / `utils.ts`: persistence and feature algorithms.
+- `src/app/*/utils.ts` (and `chapters/repository.ts`, the only repository so far):
+  persistence and feature algorithms.
 - `src/lib/`: genuinely shared policies (network, limits, browser, queue).
 - `src/db/migrations/`: monotonic SQLite schema changes.
 - `ui/src/app/`: route-oriented UI features.
@@ -49,6 +51,12 @@ credentials, book contents, or full AI prompts.
 
 ## [ORPHANS & PENDING]
 
-- Plans 015-017: stale reader loads, incremental scanning, and conditional cache validators remain follow-up work.
+- Plan 008 step 3: `src/lib/bounded-executor.ts` exists but nothing routes through
+  it, so browser and AI calls are still unbounded in practice.
+- Plan 016: the library scan re-stats and re-parses every file each pass
+  (`src/app/library/utils.ts`); flow step 3's "incrementally enriches changed
+  files" is the target, not the current behaviour.
+- Plans 020-022: the content selector is still a single string; multi-select,
+  iframe support, and the local Ollama backend are follow-up work.
 
 Deferred product directions remain uploads, next-chapter crawling, and in-book search.

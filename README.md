@@ -43,9 +43,9 @@ extraction pipeline, so no local Bun or Node install is needed.
 - The port is published on **all interfaces** (`0.0.0.0:3000`), which makes it
   reachable over Tailscale and over any LAN the host has joined. Storvi has no
   user accounts, and its endpoints drive a headless browser and can spend AI
-  quota, so access control has to come from the network around it — a Tailscale
-  ACL or a host firewall rule. For local-only use, change the mapping back to
-  `127.0.0.1:3000:3000`.
+  quota, so set `API_TOKEN` in the container's environment (the UI will prompt
+  for it) and/or restrict access with a Tailscale ACL or host firewall rule. For
+  local-only use, change the mapping back to `127.0.0.1:3000:3000`.
 
 ## Configuration
 
@@ -72,7 +72,15 @@ reverse proxy — restricts who can connect. It is not safe on a LAN or public
 interface, and it never disables authentication: an `API_TOKEN` that is set is
 still enforced.
 
-**Known gap:** the web UI does not yet attach the bearer token to its requests,
-so setting `API_TOKEN` currently makes the browser UI fail with 401 while the
-API stays usable from `curl`. Until that lands, token auth is for API clients
-only.
+### Using the UI with a token
+
+The web UI sends `Authorization: Bearer <API_TOKEN>` on every `/api` request —
+ordinary queries, SSE streams, cover images, and book downloads. The first 401
+opens a prompt; paste the server's `API_TOKEN` and the page reloads
+authenticated. The value is kept in that browser's `localStorage` under
+`app/auth`, so it must be entered once per browser or device and again after
+clearing site data. It is never attached to cross-origin requests.
+
+Treat the token as device-scoped: any script running on the page can read
+`localStorage`. Rotate it by changing `API_TOKEN` on the server, which
+invalidates every stored copy.

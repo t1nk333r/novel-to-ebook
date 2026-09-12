@@ -14,12 +14,12 @@ remediation/plans-001-018   27de206   all work lives here
 
 | Gate | Result |
 |---|---|
-| `bun test` | 41 pass, 0 fail, 8 files |
+| `bun test` | 50 pass, 0 fail, 9 files |
 | `pnpm typecheck` | clean (server + UI) |
 | `pnpm lint` | 0 errors, 23 warnings |
 | `pnpm build` | `ui/dist/index.html` present |
 
-Plans 001–007, 009–015, 017–019 are done. Plans 004 and 008 are **partial**.
+Plans 001–007, 009–015, 017–019, 023 are done. Plan 008 is **partial**.
 Plans 016, 020, 021, 022 are TODO.
 
 A container is running and serving on `0.0.0.0:3000`, but it was **built before
@@ -70,7 +70,7 @@ git submodule update --init --recursive     # only if pnpm build fails
 | 001 | Standardize pnpm workspace | DONE |
 | 002 | Verification baseline and CI | DONE — suite is thin, see below |
 | 003 | Confine EPUB exports | DONE |
-| 004 | Loopback default + bearer auth | **PARTIAL** — UI cannot send the token |
+| 004 | Loopback default + bearer auth | DONE — UI transport landed as 023 |
 | 005 | SSRF-safe outbound URLs | DONE |
 | 006 | Migrations before traffic | DONE |
 | 007 | Patch dependencies | DONE |
@@ -89,16 +89,11 @@ git submodule update --init --recursive     # only if pnpm build fails
 | 020 | Multi-select content selectors | TODO — depends on 019 (satisfied) |
 | 021 | Iframe selectors | TODO — depends on 020 |
 | 022 | Ollama page parser | TODO — depends on 021 |
+| 023 | UI bearer token transport | DONE, browser-verified |
 
 `plans/README.md` holds the full reconciliation log with per-plan evidence.
 
-### The two partials
-
-**Plan 004 — the UI cannot authenticate.** `ui/src/lib/api.ts` builds its fetch
-client with `baseUrl` and one response hook. `grep -rn "API_TOKEN\|Bearer\|apiToken"
-ui/src --include=*.ts --include=*.tsx` returns nothing. Setting `API_TOKEN` makes
-every browser API call 401 while `curl` still works, so token auth is currently
-unusable and the deployment runs open. This is the highest-value gap.
+### The remaining partial
 
 **Plan 008 — `src/lib/bounded-executor.ts` is an orphan.** Limits and Zod maxima
 landed, but `grep -rn "BoundedExecutor" src/` matches only its own definition. No
@@ -107,7 +102,7 @@ success, error, and abort" cannot hold. Step 3 is the remaining work.
 
 ### Test suite
 
-10 tests across 3 files at session start; **41 across 8 files** now. Still thin.
+10 tests across 3 files at session start; **50 across 9 files** now. Still thin.
 Plans 003–014 named test targets (`auth`, `startup`, `rescan`, `font-attempts`)
 that were never written. A green `pnpm check` is weak evidence on its own.
 
@@ -167,11 +162,12 @@ Built from the multi-stage `Dockerfile` (Node 24 builds the UI, `oven/bun:1.4-de
 runs it, distro Chromium via `PUPPETEER_EXECUTABLE_PATH`). `docker-compose.yml`
 publishes on `0.0.0.0:3000` at the user's explicit instruction.
 
-**It runs unauthenticated.** `ALLOW_INSECURE_BIND=1` permits a tokenless
-non-loopback bind. The flag never disables `bearerAuth` — a configured token is
-still enforced — but the UI cannot send one (plan 004), so a token is not a usable
-option today. Anything that can route to port 3000, including every tailnet
-device, has full control of the browser-automation and AI endpoints.
+**The running container is unauthenticated** — it has no `API_TOKEN` and
+`ALLOW_INSECURE_BIND=1` permits the tokenless non-loopback bind, so anything that
+can route to port 3000, including every tailnet device, has full control of the
+browser-automation and AI endpoints. Since plan 023 landed this is now fixable
+without a code change: set `API_TOKEN` in `docker-compose.yml`, rebuild, and the
+UI will prompt for it on first load (once per browser).
 
 **No PWA/offline over plain HTTP.** Service workers need a secure context, so
 offline caching works at `127.0.0.1` but not from other devices.
@@ -189,19 +185,21 @@ Plan 014's **migration 0002 renumbers every project's chapters** to a dense
 
 **Immediately available, no decisions needed:**
 
-1. **Clean up worktrees.** Four `.claude/worktrees/agent-*` remain registered and
-   are fully merged: `git worktree remove <path>` for each, then add `.claude/`
-   to `.gitignore` (it is currently untracked and unignored).
-2. **Rebuild and redeploy** so the merged work is actually live (back up the DB
-   volume first, per §6).
+1. **Rebuild and redeploy with `API_TOKEN` set** — plan 023 landed, so the UI can
+   authenticate now; the deployment is only open because the container predates
+   it and carries no token. Back up the DB volume first, per §6.
+2. **Clean up worktrees.** Four `.claude/worktrees/agent-*` remain registered and
+   are fully merged (`git branch --no-merged HEAD` is empty): `git worktree remove <path>`
+   for each, then add `.claude/` to `.gitignore` (it is currently untracked and
+   unignored).
 3. **Plan 020** — multi-select content selectors. Unblocked now that 019 landed.
 4. **Plan 008 step 3** — wire `BoundedExecutor`.
 5. **Plan 016** — incremental library scan.
+6. **Verify the token flow end to end after redeploy** — the local proof used a
+   throwaway token on port 3010 with a scratch database, not the container.
 
 **Needs a decision:**
 
-6. **Plan 004's UI token transport.** Not yet planned. Until it exists, the app
-   cannot be run authenticated. Worth writing as plan 023.
 7. **TrueNAS deployment.** Target confirmed: TrueNAS SCALE, RTX 3070 Ti (8 GB),
    driver 570.172.08, CUDA 12.8, GPU passthrough working, GPU shared with
    Jellyfin. Blockers in order:

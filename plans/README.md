@@ -12,7 +12,7 @@ status here.
 | 001 | Standardize package management and workspace discovery | P1 | M | — | DONE |
 | 002 | Establish repository-wide verification and CI | P1 | M | 001 | DONE |
 | 003 | Confine EPUB exports to the library root | P1 | S | 002 | DONE |
-| 004 | Default to loopback and authenticate remote API access | P1 | M | 002 | DONE |
+| 004 | Default to loopback and authenticate remote API access | P1 | M | 002 | DONE (UI transport landed via 023) |
 | 005 | Enforce an SSRF-safe outbound URL policy | P1 | M | 002 | DONE |
 | 006 | Complete migrations before scans and traffic | P1 | S | 002 | DONE |
 | 007 | Patch reachable vulnerable dependencies | P1 | M | 001, 002 | DONE |
@@ -31,12 +31,44 @@ status here.
 | 020 | Let the picker select multiple content elements | P2 | M | 019 | TODO |
 | 021 | Make the selector picker and extraction work inside iframes | P2 | M | 019, 020 | TODO |
 | 022 | Add a local Ollama backend for AI selector generation | P3 | M | 021 | TODO |
+| 023 | Let the web UI authenticate with the API bearer token | P1 | M | 004 | DONE (verified 2026-09-02) |
 
 Status values: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED`, or `REJECTED`.
 `DONE (verified …)` means the done criteria were re-checked against the working
 tree on the stated date.
 
 ## Reconciliation log
+
+### 2026-09-02 — plan 023 written and executed
+
+Written and landed in one pass against `a505f3a`. `ui/src/lib/api-auth.ts` holds
+the only copy of the "same-origin `/api` only" rule; the four browser → API
+transports (`ui/src/lib/api.ts` openapi-fetch middleware, `ui/src/lib/sse.ts`,
+and both `fetch` calls in `ui/src/hooks/use-offline.ts`) attach the header
+through it, and a 401 anywhere opens `ui/src/components/token-gate.tsx`.
+
+Verified in a headless Chromium against a real authenticated server
+(`HOST=0.0.0.0 API_TOKEN=… PORT=3010`, production build, throwaway token),
+recording every `/api` response and whether the request carried an
+`authorization` header:
+
+- no token → `/api/library` and `/api/library/history` 401 with no header, gate
+  dialog rendered;
+- wrong token → 401 **with** header, gate shows "That token was rejected";
+- correct token → `/api/library` 200, `/api/library/history` 200;
+- cover image `/api/library/cover.jpeg?key=…` 200 with header, decoded to a
+  256×384 blob in an `<img>` (transport 3);
+- book `/api/library/get?key=…` 200 with header, then **304** with header on
+  reload — plan 017's conditional path still short-circuits (transport 4);
+- project page `…/chapters/import` SSE stream 200 with header (transport 2).
+
+Gates: `pnpm test` 50 pass / 0 fail (41 pre-existing + 9 new in
+`tests/api-auth-transport.test.ts`), `pnpm typecheck` clean, `pnpm lint` 0
+errors / 23 warnings (unchanged), `pnpm build` writes `ui/dist`.
+
+Divergence from the plan as written: `setApiToken()` was dropped and the single
+call site now uses `authStore.setState({ token })` directly, per the repo's
+no-tiny-wrappers rule. The plan text was updated to match.
 
 ### 2026-08-31 — `improved-dev reconcile`
 
@@ -50,6 +82,11 @@ Environment caveat: `bun` is not installed on this machine, so `pnpm test`,
 `pnpm check`, and `pnpm start` cannot run locally. `pnpm typecheck` and
 `pnpm lint` both exit 0 (lint: 25 warnings, 0 errors). CI (`.github/workflows/ci.yml`)
 installs Bun 1.4.0 and runs `pnpm check`, so the gate is real there.
+
+> **Superseded 2026-09-02.** `bun` *is* installed on this machine (mise, 1.4.0);
+> it is simply not on `PATH`. Prefix commands with
+> `export PATH="$HOME/.local/share/mise/installs/bun/1.4.0/bin:$PATH"` and the
+> full `pnpm check` runs locally.
 
 **Verified DONE** (done criteria re-checked in code):
 
@@ -123,6 +160,9 @@ installs Bun 1.4.0 and runs `pnpm check`, so the gate is real there.
   Landing 022 before 020 means reworking its schema and tests.
 - 018 documents the final commands and security model only after those commands
   and defaults exist.
+- 023 completes plan 004's step 3 (UI request transport). It is client-only —
+  it touches no file under `src/` and no file in the 019→022 selector chain, so
+  it can run in parallel with any of them.
 
 ## Findings considered and rejected
 
