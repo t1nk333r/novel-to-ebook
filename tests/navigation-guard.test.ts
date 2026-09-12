@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
 import puppeteer from "puppeteer";
 import { guardNavigations } from "../src/lib/browser";
+import { findBrowser, launchBrowser } from "./browser";
 
 /**
  * Wiring test for the document-navigation guard (plan 024).
@@ -13,24 +13,8 @@ import { guardNavigations } from "../src/lib/browser";
  * blocked when the policy refuses it, loaded when it does not. That is what
  * makes the test fail if the guard is removed rather than merely skipped.
  *
- * Runs wherever a browser is actually available: an explicit
- * `PUPPETEER_EXECUTABLE_PATH`, or the copy CI downloads during install. Skipped
- * only when neither exists (a local `--ignore-scripts` tree has no download).
+ * Runs wherever a browser is actually available; see tests/browser.ts.
  */
-function findBrowser() {
-  const configured = process.env.PUPPETEER_EXECUTABLE_PATH;
-  if (configured && existsSync(configured)) return configured;
-
-  try {
-    const bundled = puppeteer.executablePath();
-    if (existsSync(bundled)) return bundled;
-  } catch {
-    // Not downloaded; fall through to skipping.
-  }
-
-  return undefined;
-}
-
 const executablePath = findBrowser();
 const PORT = 3099;
 const MARKER = "NAV-GUARD-FIXTURE";
@@ -48,11 +32,8 @@ async function withPage<T>(
   isAllowed: ((url: string) => boolean) | undefined,
   run: (page: puppeteer.Page) => Promise<T>,
 ) {
-  const browser = await puppeteer.launch({
-    executablePath,
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"],
-  });
+  if (!executablePath) throw new Error("no browser");
+  const browser = await launchBrowser(executablePath);
 
   try {
     const page = await browser.newPage();

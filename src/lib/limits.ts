@@ -27,4 +27,5 @@ export const limits = {
   browserConcurrency: readPositiveInteger("MAX_BROWSER_CONCURRENCY", 3),
   aiConcurrency: readPositiveInteger("MAX_AI_CONCURRENCY", 2),
   scanConcurrency: readPositiveInteger("MAX_SCAN_CONCURRENCY", 4),
+  frames: readPositiveInteger("MAX_FRAMES", 8),
 } as const;

@@ -22,6 +22,10 @@ export const SelectorSchema = z.object({
   isChapterInTitle: z.boolean().nullish(),
   titleSeparator: z.string().nullish(),
   content: contentSelectorList,
+  // CSS selector of each <iframe> from the main frame down to the frame the
+  // content lives in. Absent or empty means the main frame, so payloads written
+  // before frames were supported keep working untouched.
+  framePath: z.string().min(1).array().max(limits.frames).optional(),
   urls: z
     .object({
       nextChapter: z.string().nullish(),
@@ -167,6 +171,7 @@ const extractRequestSelectors = z.object(
   {
     chapter: z.string().min(1, { message: "chapter selector is required" }),
     content: contentSelectorList,
+    framePath: z.string().min(1).array().max(limits.frames).optional(),
   },
   { error: "selectors is required" },
 );

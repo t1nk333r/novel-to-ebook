@@ -49,6 +49,7 @@ const schema = z.union([
     // rejected every picked selection, and the resolver failure surfaced as a
     // Save button that did nothing.
     selector: z.union([z.string(), z.string().array()]).nullish(),
+    framePath: z.string().array().nullish(),
   }),
   z.object({ type: z.null() }),
 ]);
@@ -101,6 +102,7 @@ export default function AddChapterModal() {
             projectId: project.id,
             url: values.url!,
             selector: values.selector,
+            framePath: values.framePath,
           },
         });
 
@@ -271,8 +273,9 @@ export default function AddChapterModal() {
                           addChapterModal.setOpen(false);
                           customSelectorModal.onOpen({
                             url,
-                            onSelect(selectors) {
+                            onSelect(selectors, framePath) {
                               form.setValue("selector", selectors);
+                              form.setValue("framePath", framePath);
                               addChapterModal.setOpen(true);
                             },
                           });

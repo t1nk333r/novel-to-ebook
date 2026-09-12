@@ -25,7 +25,7 @@ import { XIcon } from "lucide-react";
 
 export const customSelectorModal = createDisclosure<{
   url: string;
-  onSelect: (selectors: string[]) => void;
+  onSelect: (selectors: string[], framePath?: string[]) => void;
 }>();
 
 export default function CustomSelectorModal() {
@@ -35,6 +35,9 @@ export default function CustomSelectorModal() {
   const screenshotRef = useRef<ScreenshotViewerRef>(null!);
 
   const [curSelectors, setSelectors] = useState<string[]>([]);
+  // Content selectors are resolved inside one frame, so a pick in a different
+  // frame starts a new selection rather than silently mixing two documents.
+  const [curFramePath, setFramePath] = useState<string[] | undefined>();
   const [blockList, setBlockList] = useState<string[]>([]);
 
   const {
@@ -75,6 +78,7 @@ export default function CustomSelectorModal() {
     if (url) {
       loadPage();
       setSelectors([]);
+      setFramePath(undefined);
     }
   }, [url]);
 
@@ -128,11 +132,21 @@ export default function CustomSelectorModal() {
                 disclosure.open && !isPending && pageData?.screenshot != null
               }
               onSelect={(el) =>
-                setSelectors((prev) =>
-                  prev.includes(el.selector)
+                setSelectors((prev) => {
+                  const framePath: string[] = el.framePath ?? [];
+                  const sameFrame =
+                    JSON.stringify(framePath) ===
+                    JSON.stringify(curFramePath ?? []);
+
+                  if (!sameFrame) {
+                    setFramePath(framePath);
+                    return [el.selector];
+                  }
+
+                  return prev.includes(el.selector)
                     ? prev.filter((s) => s !== el.selector)
-                    : [...prev, el.selector],
-                )
+                    : [...prev, el.selector];
+                })
               }
               disableDepthSelect
             />
@@ -175,7 +189,7 @@ export default function CustomSelectorModal() {
           <Button
             disabled={curSelectors.length === 0}
             onClick={() => {
-              onSelect?.(curSelectors);
+              onSelect?.(curSelectors, curFramePath);
               customSelectorModal.setOpen(false);
             }}
           >

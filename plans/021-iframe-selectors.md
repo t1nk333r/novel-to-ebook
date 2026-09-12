@@ -25,6 +25,63 @@
 - **Depends on**: `plans/019-selector-precision.md`, `plans/020-multi-select-content.md`
 - **Category**: bug
 - **Planned at**: commit `5b03d47`, 2026-09-01
+- **Resolved**: 2026-09-12 — see "Resolution" below
+
+## Resolution 2026-09-12
+
+Frames are now part of the pick and extract chain.
+
+**Step 2's coordinate question, answered by experiment** (single-level and nested
+fixtures): `frameElement().boundingBox()` is **main-frame-absolute at any depth** —
+an iframe positioned at (60,120) reported (60,120), and a nested one reported its
+accumulated main-frame position (85,160). The element's box in main-frame space is
+therefore `frameElement().boundingBox() + in-frame getBoundingClientRect()`, and
+**no walking of the parent chain is needed**. The plan asked for this to be
+verified rather than trusted; had it come out the other way, an offset chain would
+have been required.
+
+What landed:
+
+- `framePath?: string[]` on both selectors shapes and on `POST /projects/extract`
+  — the CSS selector of each `<iframe>` from the main frame down. Optional
+  everywhere, so existing payloads and stored selectors keep working untouched.
+- `MAX_FRAMES` (8) bounds the work; frames past it are skipped with a warning
+  naming the count only.
+- `collectFrameElements(page, ignoreDuplicates)` replaces the single
+  `page.evaluate(extractElements, …)` in the snapshot route. Main-frame elements
+  get `framePath: []` and their boxes unchanged; child-frame elements get their
+  path and an offset box. A detached or navigating frame is skipped with the
+  frame **origin** logged — one bad frame cannot fail a snapshot.
+- `framePathOf(frame)` walks `parentFrame()` to build a path, and `resolveFrame(page, framePath)`
+  walks it back down for extraction, throwing an `HTTPError` naming the segment
+  when the page structure changed and the pick is stale.
+- `tryExtractContent` reads its HTML from the resolved frame (the document title
+  still comes from the main frame).
+- The snapshot's auto-detection now tries each child frame when the main frame
+  yields no selector, returning the frame's path alongside `contentSelector`.
+- The picker carries the frame path through to the request; picking in a
+  different frame starts a new selection rather than mixing two documents, since
+  one `framePath` describes the frame all content selectors resolve in.
+
+**Two deviations, both deliberate.** (1) The plan suggested reusing the exported
+`getSelector` for the iframe descriptors by evaluating it in the parent frame;
+that is not possible — `evaluate` serializes the function into the page where
+module scope does not exist, and arguments must be serializable — so a
+self-contained `iframe:nth-of-type(n)` descriptor is computed inside the parent
+frame instead. (2) Only `tryExtractContent` was made frame-aware; `extractContent`
+is dead code (no callers anywhere, recorded in `plans/020`'s reconciliation) and
+touching it would add risk for no behaviour.
+
+Verified: 7 tests in `tests/frame-selectors.test.ts` — schema (absent, empty,
+valid, empty segment, over-limit), `resolveFrame` on doubles (main frame for an
+absent/empty path, a child frame when a segment matches, an error naming the
+segment when none does), and a **real-browser** case that collects elements from a
+fixture page whose content sits in an iframe: the in-frame paragraph is offered
+with `framePath: ["iframe:nth-of-type(1)"]` and a box offset into main-frame space
+(60+5, 120+10), and that path resolves back to the frame that produced it.
+Regression check through the running route: a frame-less public page still returns
+its element tree (5 elements, every one with `framePath: []`) and extraction with a
+selector is unchanged.
 
 ## Why this matters
 

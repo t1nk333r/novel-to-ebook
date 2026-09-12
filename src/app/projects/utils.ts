@@ -1,4 +1,4 @@
-import { Page } from "puppeteer";
+import { Page, type Frame } from "puppeteer";
 import * as cheerio from "cheerio";
 import { cleanHTML } from "../../lib/utils";
 import fs from "fs/promises";
@@ -12,6 +12,8 @@ import {
   FontDecryptor,
 } from "../../lib/font-decryptor";
 import { decryptTextFromFont } from "../utility/utils";
+import { HTTPError } from "../../lib/error";
+import { limits } from "../../lib/limits";
 import db from "../../db";
 
 export function extractElements(ignoreDuplicates = false) {
@@ -213,6 +215,163 @@ export function getCleanHTML() {
     .replace(/\s+/g, " ")
     .replace(/>\s+</g, "><")
     .trim();
+}
+
+/**
+ * A frame's position in the frame tree, as the CSS selector of each <iframe>
+ * from the main frame down. Frame *URLs* are deliberately not used: they carry
+ * cache-busting query strings that change between loads.
+ */
+export type FramePath = string[];
+
+/**
+ * Describe one `<iframe>` well enough to find it again. Runs inside the parent
+ * frame via `evaluate`, so it must not reference module scope (see the
+ * CRITICAL CONSTRAINT note on `extractElements`).
+ */
+const DESCRIBE_IFRAME = (el: Element) => {
+  const tag = el.tagName.toLowerCase();
+  const parent = el.parentElement;
+  if (!parent) return tag;
+
+  const sameTag = Array.from(parent.children).filter(
+    (child) => child.tagName === el.tagName,
+  );
+  return `${tag}:nth-of-type(${sameTag.indexOf(el) + 1})`;
+};
+
+function originOf(url: string) {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return "(unknown origin)";
+  }
+}
+
+/** Walk `frame` up to the main frame, collecting one selector per level. */
+export async function framePathOf(frame: Frame): Promise<FramePath | null> {
+  const segments: string[] = [];
+  let current: Frame | null = frame;
+
+  while (current && current.parentFrame()) {
+    const handle = await current.frameElement();
+    if (!handle) return null;
+
+    const segment = await handle.evaluate(DESCRIBE_IFRAME);
+    if (!segment) return null;
+
+    segments.unshift(segment);
+    current = current.parentFrame();
+  }
+
+  return segments;
+}
+
+/**
+ * Every element the picker can offer, across the page's frames.
+ *
+ * The screenshot shows content rendered inside frames, so element enumeration
+ * has to see it too — otherwise a page that visibly contains the chapter offers
+ * nothing to click. Structure is main-frame-first; each child frame's boxes are
+ * translated into main-frame space, which is the coordinate system the UI
+ * overlay draws in. `frameElement().boundingBox()` is main-frame-absolute at any
+ * depth (verified against a nested fixture), so a single offset per frame is
+ * enough — no walking the parent chain.
+ *
+ * A frame that is detached or navigating is skipped: one bad frame must not
+ * fail the whole snapshot.
+ */
+export async function collectFrameElements(page: Page, ignoreDuplicates: boolean) {
+  const main = page.mainFrame();
+  const frames = page.frames();
+
+  const usable = frames.slice(0, limits.frames);
+  if (frames.length > usable.length) {
+    console.warn(
+      `snapshot: ${frames.length - usable.length} frames past MAX_FRAMES ignored`,
+    );
+  }
+
+  const collected: Record<string, unknown>[] = [];
+
+  for (const frame of usable) {
+    try {
+      const elements = (await frame.evaluate(
+        extractElements,
+        ignoreDuplicates,
+      )) as Record<string, unknown>[];
+
+      if (frame === main) {
+        collected.push(...elements.map((el) => ({ ...el, framePath: [] })));
+        continue;
+      }
+
+      const framePath = await framePathOf(frame);
+      if (!framePath) continue;
+
+      const handle = await frame.frameElement();
+      const frameBox = await handle?.boundingBox();
+      if (!frameBox) continue;
+
+      collected.push(
+        ...elements.map((el) => {
+          const box = el.box as { x: number; y: number; w: number; h: number };
+          return {
+            ...el,
+            framePath,
+            box: {
+              x: box.x + frameBox.x,
+              y: box.y + frameBox.y,
+              w: box.w,
+              h: box.h,
+            },
+          };
+        }),
+      );
+    } catch (err) {
+      console.warn(
+        `snapshot: skipped frame ${originOf(frame.url())} —`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
+  return collected;
+}
+
+/** The frame a selector path points at; empty or absent means the main frame. */
+export async function resolveFrame(page: Page, framePath?: FramePath | null) {
+  if (!framePath || framePath.length === 0) return page.mainFrame();
+
+  let frame = page.mainFrame();
+
+  for (const segment of framePath) {
+    const child = await findChildFrame(frame, segment);
+    if (!child) {
+      throw new HTTPError(
+        `No frame matches selector "${segment}" — the page structure changed, pick the content again`,
+        { status: 400, code: "FRAME_NOT_FOUND" },
+      );
+    }
+    frame = child;
+  }
+
+  return frame;
+}
+
+async function findChildFrame(parent: Frame, segment: string) {
+  for (const child of parent.childFrames()) {
+    const handle = await child.frameElement();
+    if (!handle) continue;
+
+    const matches = await handle.evaluate(
+      (el, selector) => el.matches(selector),
+      segment,
+    );
+    if (matches) return child;
+  }
+
+  return null;
 }
 
 export async function extractContent(page: Page, url: string, selectors: any) {
@@ -615,15 +774,19 @@ export async function tryExtractContent(
   options?: {
     fontDecryptMap?: Record<string, string> | null;
     selector?: string | string[] | null;
+    framePath?: FramePath | null;
   },
 ) {
   const fonts = extractFonts(page);
 
   await assertSafeOutboundUrl(url);
   await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
+
+  // Content can live in an iframe; the document title stays the main frame's.
+  const frame = await resolveFrame(page, options?.framePath);
   const [title, html] = await Promise.all([
     page.evaluate(() => document.title),
-    page.evaluate(getCleanHTML),
+    frame.evaluate(getCleanHTML),
   ]);
 
   const article = await extractArticle(html, options?.selector);

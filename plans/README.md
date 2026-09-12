@@ -29,7 +29,7 @@ status here.
 | 018 | Add a production build and executable documentation | P2 | S | 001, 002, 004 | DONE |
 | 019 | Generate content selectors that match exactly the intended element | P2 | S | 002 | DONE (merged 2026-09-02) |
 | 020 | Let the picker select multiple content elements | P2 | M | 019 | DONE (verified 2026-09-12) |
-| 021 | Make the selector picker and extraction work inside iframes | P2 | M | 019, 020 | TODO |
+| 021 | Make the selector picker and extraction work inside iframes | P2 | M | 019, 020 | DONE (verified 2026-09-12 — in-frame elements offered and extractable) |
 | 022 | Add a local Ollama backend for AI selector generation | P3 | M | 021 | TODO |
 | 023 | Let the web UI authenticate with the API bearer token | P1 | M | 004 | DONE (verified 2026-09-02) |
 | 024 | Validate every Chromium navigation, not just the entry URL | P1 | M-L | 005 | DONE (verified 2026-09-12 — redirect into loopback blocked) |
@@ -93,6 +93,38 @@ finished work — see the commit for the starvation measurement; plus the browse
 launch race, the out-of-policy font fetch, the silently swallowed scan failure,
 the reorder/NOT NULL race, the cross-project import stream, and two UI
 robustness fixes. `tests/queue-manager.test.ts` pins the queue contract.
+
+### 2026-09-12 — plan 021 executed (iframes are selectable and extractable)
+
+Pages that render their chapter inside an `<iframe>` used to show it in the
+screenshot while offering nothing to click, because enumeration, auto-detection
+and extraction all ran against the main frame only.
+
+Empirical answer to the plan's coordinate question, from single-level and nested
+fixtures: `frameElement().boundingBox()` is main-frame-absolute at **any** depth,
+so an element's main-frame box is that plus its in-frame rect, with no parent-chain
+accumulation. (Had it been frame-relative, the implementation would have needed
+the chain — the plan was right to insist on measuring.)
+
+Landed: optional `framePath` on the schemas and the extract route; `MAX_FRAMES`
+(8); `collectFrameElements` in the snapshot route, giving main-frame elements
+`framePath: []` and child-frame elements an offset box plus their path, skipping
+detached/navigating frames by origin; `framePathOf`/`resolveFrame` for the
+reverse walk, erroring with the failing segment when a pick goes stale;
+`tryExtractContent` reading from the resolved frame; per-frame auto-detection;
+and the picker carrying the path through, restarting the selection when the user
+picks in a different frame.
+
+Two deviations recorded in the plan: iframe descriptors are self-contained
+`nth-of-type` paths (evaluating the exported `getSelector` in the parent frame is
+not possible — `evaluate` runs without module scope), and only the live
+extraction path was made frame-aware, since `extractContent` is dead code.
+
+Evidence: 7 tests, including a real-browser case asserting an in-frame paragraph
+is offered with `framePath: ["iframe:nth-of-type(1)"]`, boxed at (65,130) in
+main-frame space, and that the path resolves back to that frame. A frame-less
+public page still snapshots normally (5 elements, all `framePath: []`) and
+extracts unchanged.
 
 ### 2026-09-12 — plan 016 executed (scan is incremental and bounded)
 

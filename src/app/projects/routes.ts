@@ -19,9 +19,10 @@ import { openApi } from "hono-zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import z from "zod";
 import {
-  extractElements,
+  collectFrameElements,
   fetchImage,
   findContentSelector,
+  framePathOf,
   getCleanHTML,
   getProjectConfig,
   tryExtractContent,
@@ -188,6 +189,7 @@ router.post(
         projectId: z.string().nullish(),
         url: z.url(),
         selector: contentSelectorList.nullish(),
+        framePath: z.string().min(1).array().max(limits.frames).nullish(),
       }),
     },
     responses: {
@@ -203,7 +205,7 @@ router.post(
     },
   }),
   async (c) => {
-    const { projectId, url, selector } = c.req.valid("json");
+    const { projectId, url, selector, framePath } = c.req.valid("json");
 
     return browserExecutor.run(async () => {
       let page: Page | null = null;
@@ -219,6 +221,7 @@ router.post(
         const res = await tryExtractContent(page, url, {
           fontDecryptMap,
           selector,
+          framePath,
         });
 
         if (res.hasNewDecryptMap && projectId) {
@@ -412,13 +415,34 @@ router.post(
         stopScreenshots = null;
         await sendScreenshot(70, isFullPage);
 
-        // Projects element tree for selector building
-        const elements = await page.evaluate(
-          extractElements,
-          body.ignoreDuplicates,
-        );
+        // Element tree for selector building, across every frame the page
+        // renders into — the screenshot shows frame content, so the picker has
+        // to be able to click it.
+        const elements = await collectFrameElements(page, !!body.ignoreDuplicates);
         const html = await page.evaluate(getCleanHTML);
-        const contentSelector = findContentSelector(html)?.selector || null;
+
+        // Auto-detection sees the main frame's HTML, which never contains frame
+        // content (iframes are stripped). Try each child frame before giving up
+        // so a page whose chapter lives in a frame still gets a suggestion.
+        let contentSelector = findContentSelector(html)?.selector || null;
+        let contentFramePath: string[] | undefined;
+
+        if (!contentSelector) {
+          const frames = page.frames().slice(1, limits.frames);
+          for (const frame of frames) {
+            try {
+              const frameHtml = await frame.evaluate(getCleanHTML);
+              const candidate = findContentSelector(frameHtml)?.selector;
+              if (candidate) {
+                contentSelector = candidate;
+                contentFramePath = (await framePathOf(frame)) ?? undefined;
+                break;
+              }
+            } catch {
+              // Detached or mid-navigation: try the next frame.
+            }
+          }
+        }
 
         s.writeSSE({
           event: "result",
@@ -428,6 +452,7 @@ router.post(
             pageSize,
             html,
             contentSelector,
+            framePath: contentFramePath,
           }),
         });
       } catch (err) {
