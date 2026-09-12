@@ -25,6 +25,23 @@
 - **Depends on**: `plans/019-selector-precision.md`
 - **Category**: bug
 - **Planned at**: commit `5b03d47`, 2026-09-01
+- **Executed**: commit `04dfe0e`, 2026-09-12 — **retargeted**, see below
+
+## Reconciliation 2026-09-12 — executed against a different function
+
+This plan named `extractContent` (`src/app/projects/utils.ts`) as the defective
+path. It is **dead code**: `extractContent`, `ExtractRequestSchema` and
+`ExtractResponseSchema` have zero callers anywhere in the repository (verified
+with a repo-wide search). The live selector path is
+
+    POST /projects/extract  ->  tryExtractContent  ->  extractArticle(html, selector)
+
+and `extractArticle` had the same defect the plan describes — `$(selector).html()`
+returns only the first match's inner HTML. The work was done there instead; the
+dead functions were left untouched (out of scope, and deleting them is a
+separate decision). Steps 1–5 below were followed in substance with that
+substitution, and the UI now closes the Add Chapter dialog while the picker is
+open rather than stacking two modals (see `plans/025`).
 
 ## Why this matters
 

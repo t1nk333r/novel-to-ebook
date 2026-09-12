@@ -242,10 +242,16 @@ export default function AddChapterModal() {
                         onClick={() => {
                           const url = form.getValues("url");
                           if (!url) return;
+                          // Never stack this dialog under the picker: two
+                          // overlapping Radix modals left the lower one mounted
+                          // but inert, so the form could not be saved after a
+                          // pick. The dialog is reopened with the selection.
+                          addChapterModal.setOpen(false);
                           customSelectorModal.onOpen({
                             url,
                             onSelect(selectors) {
                               form.setValue("selector", selectors);
+                              addChapterModal.setOpen(true);
                             },
                           });
                         }}

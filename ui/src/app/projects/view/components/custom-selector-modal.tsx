@@ -98,8 +98,15 @@ export default function CustomSelectorModal() {
     }
   };
 
+  // This popup opens on top of another dialog. Left mounted after closing, its
+  // Radix layer stayed the top one with pointer-events enabled, which left the
+  // dialog underneath inert — the user could not click Save any more. Mounting
+  // it only while open removes the layer with it. (A lone dialog unmounts fine;
+  // the stuck layer is specific to opening one dialog over another.)
+  if (!disclosure.open) return null;
+
   return (
-    <Dialog open={disclosure.open}>
+    <Dialog open>
       <DialogContent className="overflow-hidden md:max-w-[calc(100vw-4rem)]">
         <DialogHeader>
           <DialogTitle>Pick Content Selector</DialogTitle>

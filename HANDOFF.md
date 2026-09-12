@@ -14,7 +14,7 @@ remediation/plans-001-018   27de206   all work lives here
 
 | Gate | Result |
 |---|---|
-| `bun test` | 55 pass, 0 fail, 10 files |
+| `bun test` | 72 pass, 0 fail, 12 files |
 | `pnpm typecheck` | clean (server + UI) |
 | `pnpm lint` | 0 errors, 23 warnings |
 | `pnpm build` | `ui/dist/index.html` present |
@@ -103,7 +103,7 @@ the live 429/200 evidence are in `plans/README.md`.
 
 ### Test suite
 
-10 tests across 3 files at session start; **55 across 10 files** now. Still thin.
+10 tests across 3 files at session start; **72 across 12 files** now. Still thin.
 Plans 003–014 named test targets (`auth`, `startup`, `rescan`, `font-attempts`)
 that were never written. A green `pnpm check` is weak evidence on its own.
 

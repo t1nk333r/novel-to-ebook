@@ -28,16 +28,71 @@ status here.
 | 017 | Refresh cached books conditionally | P2 | S | 002 | DONE (merged 2026-09-02) |
 | 018 | Add a production build and executable documentation | P2 | S | 001, 002, 004 | DONE |
 | 019 | Generate content selectors that match exactly the intended element | P2 | S | 002 | DONE (merged 2026-09-02) |
-| 020 | Let the picker select multiple content elements | P2 | M | 019 | TODO |
+| 020 | Let the picker select multiple content elements | P2 | M | 019 | DONE (verified 2026-09-12) |
 | 021 | Make the selector picker and extraction work inside iframes | P2 | M | 019, 020 | TODO |
 | 022 | Add a local Ollama backend for AI selector generation | P3 | M | 021 | TODO |
 | 023 | Let the web UI authenticate with the API bearer token | P1 | M | 004 | DONE (verified 2026-09-02) |
+| 024 | Validate every Chromium navigation, not just the entry URL | P1 | M-L | 005 | TODO |
+| 025 | Finish the picker → save flow (stacked Radix dialogs) | P1 | S-M | 020 | TODO |
+| 026 | Stop the EPUB exporter fetching arbitrary URLs | P2 | S | 005 | TODO |
 
 Status values: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED`, or `REJECTED`.
 `DONE (verified …)` means the done criteria were re-checked against the working
 tree on the stated date.
 
 ## Reconciliation log
+
+### 2026-09-12 — plan 020 executed (retargeted) and an audit batch fixed
+
+**Plan 020 was mis-aimed and was retargeted before executing.** It named
+`extractContent` (`utils.ts`) as the defective function. That function, together
+with `ExtractRequestSchema` and `ExtractResponseSchema`, has **zero callers
+anywhere in the repo** — the live selector path is `extractArticle`, reached by
+`tryExtractContent` from `POST /projects/extract` and from the import worker,
+and it carried the identical bug: `$(selector).html()` returns only the *first*
+match's inner HTML. Fixing the dead function would have changed nothing a user
+could see. The plan's own STOP condition about `utils.ts:218` did not fire
+because that line still read as written; the plan's premise was the error.
+
+What landed:
+
+- `collectContentHtml($, selectors)` in `src/app/projects/utils.ts` — walks the
+  union in document order, drops any element already contained by one it
+  collected (so overlapping selectors cannot duplicate a paragraph), keeps the
+  outer element rather than its inner HTML, warns with the selector string only.
+- `extractArticle` and `tryExtractContent` accept a selector list.
+- `contentSelectorList` in `schema.ts` accepts a string or a list and normalizes
+  to a list, so stored/legacy single-selector payloads keep working;
+  `MAX_CONTENT_SELECTORS` (20) bounds the list and is documented in `.env.example`.
+- The picker toggles elements instead of replacing a single selection, shows the
+  ordered list with per-item removal and "clear all", and submits the list. The
+  screenshot viewer renders a highlight per selected element, keeps the old
+  single-selector prop working for the other caller, and the form field shows
+  the list while still accepting a hand-typed string.
+
+Verified: 11 new tests in `tests/content-selectors.test.ts`; live extraction
+against `example.com` returning both blocks for a list, for a legacy string, and
+for a comma-union string; and in a headless browser the picker produced the list
+`["h1", "p:nth-of-type(2)"]` in the form field with the button reading "Select 2
+blocks".
+
+**A second, pre-existing picker defect was found and only partly fixed.** Opening
+the picker on top of the Add Chapter dialog left the picker's Radix layer mounted
+after closing (`data-state="closed"`, permanently) with `pointer-events: auto`,
+which made the dialog underneath inert — the user could not click Save after
+picking. Reproduced identically on the deployed pre-change build, so it ships
+today. Two changes landed: the picker unmounts while closed, and the form dialog
+closes while the picker is open instead of stacking. The stuck layer is gone and
+the dialog below regains pointer events, but in scripted runs the Add Chapter
+dialog's DOM then responded to native events while its React handlers never
+fired, so **saving immediately after a pick is still not confirmed working** —
+see the open item in `plans/025-picker-dialog-save.md`.
+
+**Audit batch (one critical bug, four smaller):** the import queue re-ran
+finished work — see the commit for the starvation measurement; plus the browser
+launch race, the out-of-policy font fetch, the silently swallowed scan failure,
+the reorder/NOT NULL race, the cross-project import stream, and two UI
+robustness fixes. `tests/queue-manager.test.ts` pins the queue contract.
 
 ### 2026-09-02 — plan 008 step 3 executed
 
@@ -197,6 +252,12 @@ installs Bun 1.4.0 and runs `pnpm check`, so the gate is real there.
 - 023 completes plan 004's step 3 (UI request transport). It is client-only —
   it touches no file under `src/` and no file in the 019→022 selector chain, so
   it can run in parallel with any of them.
+- 024 (browser navigation policy) and 026 (export-time image URLs) are separate
+  consumers of the plan-005 policy and do not overlap each other; 024 touches
+  `src/lib/browser.ts` and the three Puppeteer call sites, 026 touches only the
+  export route's image hook.
+- 025 is a UI defect found while verifying 020. It is independent of the server
+  and can run at any time.
 
 ## Findings considered and rejected
 
