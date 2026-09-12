@@ -21,10 +21,11 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { XIcon } from "lucide-react";
 
 export const customSelectorModal = createDisclosure<{
   url: string;
-  onSelect: (selector: string) => void;
+  onSelect: (selectors: string[]) => void;
 }>();
 
 export default function CustomSelectorModal() {
@@ -33,7 +34,7 @@ export default function CustomSelectorModal() {
 
   const screenshotRef = useRef<ScreenshotViewerRef>(null!);
 
-  const [curSelector, setSelector] = useState("");
+  const [curSelectors, setSelectors] = useState<string[]>([]);
   const [blockList, setBlockList] = useState<string[]>([]);
 
   const {
@@ -73,15 +74,27 @@ export default function CustomSelectorModal() {
   useEffect(() => {
     if (url) {
       loadPage();
-      setSelector("");
+      setSelectors([]);
     }
   }, [url]);
+
+  // The mutation reads `blockList` from the render it was created in, so
+  // reloading in the same tick sent the previous list and the element only
+  // disappeared on the second click. Reload whenever the list changes.
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+
+    loadPage();
+  }, [blockList]);
 
   const onAddBlockList = () => {
     const hoveredEl = screenshotRef.current?.getHoveredElement();
     if (hoveredEl) {
-      setBlockList([...blockList, hoveredEl.selector]);
-      loadPage();
+      setBlockList((prev) => [...prev, hoveredEl.selector]);
     }
   };
 
@@ -91,7 +104,8 @@ export default function CustomSelectorModal() {
         <DialogHeader>
           <DialogTitle>Pick Content Selector</DialogTitle>
           <DialogDescription>
-            Select a custom content selector to extract content from the page.
+            Click elements to add them to the selection, click again to remove.
+            Content is extracted from every selected block, in page order.
           </DialogDescription>
         </DialogHeader>
 
@@ -101,12 +115,18 @@ export default function CustomSelectorModal() {
               ref={screenshotRef}
               screenshot={pageData?.screenshot}
               elements={pageData?.elements}
-              selectedSelector={curSelector}
+              selectedSelectors={curSelectors}
               pageSize={pageData?.pageSize}
               isSelecting={
                 disclosure.open && !isPending && pageData?.screenshot != null
               }
-              onSelect={(el) => setSelector(el.selector)}
+              onSelect={(el) =>
+                setSelectors((prev) =>
+                  prev.includes(el.selector)
+                    ? prev.filter((s) => s !== el.selector)
+                    : [...prev, el.selector],
+                )
+              }
               disableDepthSelect
             />
           </ContextMenuTrigger>
@@ -118,14 +138,43 @@ export default function CustomSelectorModal() {
           </ContextMenuContent>
         </ContextMenu>
 
-        <DialogFooter>
+        {curSelectors.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {curSelectors.map((selector) => (
+              <button
+                key={selector}
+                type="button"
+                title="Remove"
+                className="bg-muted hover:bg-muted/70 flex items-center gap-1 rounded px-2 py-1 font-mono text-xs"
+                onClick={() =>
+                  setSelectors((prev) => prev.filter((s) => s !== selector))
+                }
+              >
+                {selector}
+                <XIcon className="size-3" />
+              </button>
+            ))}
+          </div>
+        )}
+
+        <DialogFooter className="sm:justify-between">
           <Button
+            variant="ghost"
+            disabled={curSelectors.length === 0}
+            onClick={() => setSelectors([])}
+          >
+            Clear all
+          </Button>
+          <Button
+            disabled={curSelectors.length === 0}
             onClick={() => {
-              onSelect?.(curSelector);
+              onSelect?.(curSelectors);
               customSelectorModal.setOpen(false);
             }}
           >
-            Select
+            {curSelectors.length > 1
+              ? `Select ${curSelectors.length} blocks`
+              : "Select"}
           </Button>
         </DialogFooter>
       </DialogContent>

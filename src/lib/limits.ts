@@ -16,6 +16,7 @@ export const limits = {
   importLinks: readPositiveInteger("MAX_IMPORT_LINKS", 500),
   browserActions: readPositiveInteger("MAX_BROWSER_ACTIONS", 50),
   blockSelectors: readPositiveInteger("MAX_BLOCK_SELECTORS", 100),
+  contentSelectors: readPositiveInteger("MAX_CONTENT_SELECTORS", 20),
   actionAttempts: readPositiveInteger("MAX_ACTION_ATTEMPTS", 20),
   actionDelayMs: readPositiveInteger("MAX_ACTION_DELAY_MS", 60_000),
   viewportDimension: readPositiveInteger("MAX_VIEWPORT_DIMENSION", 4_096),

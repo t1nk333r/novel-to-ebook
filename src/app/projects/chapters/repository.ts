@@ -8,6 +8,7 @@ import {
 } from "../utils";
 import { newBrowserPage } from "../../../lib/browser";
 import { browserExecutor } from "../../../lib/bounded-executor";
+import { HTTPError } from "../../../lib/error";
 import db from "../../../db";
 import type { DB } from "../../../db/types";
 import { uuid, waitFor } from "../../../lib/utils";
@@ -144,20 +145,29 @@ export async function reorderChapters(projectId: string, ids: number[]) {
     )}
   END`;
 
-  const chapters = await db
-    .selectFrom("project_chapters")
-    .select("id")
-    .where("projectId", "=", projectId)
-    .execute();
-  const allowed = new Set(chapters.map((chapter) => chapter.id));
-  if (
-    ids.length !== chapters.length ||
-    new Set(ids).size !== ids.length ||
-    ids.some((id) => !allowed.has(id))
-  ) {
-    throw new Error("Reorder ids must be unique chapters in this project");
-  }
   await db.transaction().execute(async (trx) => {
+    // Read and validate inside the transaction: the background importer
+    // inserts chapters continuously, so a list validated outside it can be
+    // stale by the time the updates run, and a row missing from the CASE has
+    // no ELSE branch — it would take NULL and abort on the NOT NULL
+    // constraint, losing the operator's reorder to a 500.
+    const chapters = await trx
+      .selectFrom("project_chapters")
+      .select("id")
+      .where("projectId", "=", projectId)
+      .execute();
+    const allowed = new Set(chapters.map((chapter) => chapter.id));
+    if (
+      ids.length !== chapters.length ||
+      new Set(ids).size !== ids.length ||
+      ids.some((id) => !allowed.has(id))
+    ) {
+      throw new HTTPError(
+        "Chapter list is out of date, reload the table of contents",
+        { status: 409, code: "STALE_CHAPTER_LIST" },
+      );
+    }
+
     await trx
       .updateTable("project_chapters")
       .set({ index: sql`"index" + 1000000` as never })
@@ -166,7 +176,7 @@ export async function reorderChapters(projectId: string, ids: number[]) {
     await trx
       .updateTable("project_chapters")
       .set({ index: caseSql as never })
-      .where("projectId", "=", projectId)
+      .where("id", "in", ids)
       .execute();
   });
 }

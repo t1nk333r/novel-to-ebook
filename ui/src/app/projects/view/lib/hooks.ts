@@ -5,7 +5,11 @@ import { toast } from "sonner";
 import { closeTab, tabStore } from "./stores";
 
 export function useUpdateProject(id: string) {
-  const update = $api.useMutation("put", "/projects/{id}");
+  const update = $api.useMutation("put", "/projects/{id}", {
+    onError(err) {
+      toast.error((err as Error).message);
+    },
+  });
   const mutate = useCallback(
     (values: JsonBody<"/projects/{id}", "put">) => {
       update.mutate({ params: { path: { id } }, body: values });

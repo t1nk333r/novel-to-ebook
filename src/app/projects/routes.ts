@@ -3,6 +3,7 @@ import { streamSSE } from "hono/streaming";
 import { translate, uuid, waitFor } from "../../lib/utils";
 import {
   ActionSchema,
+  contentSelectorList,
   CreateProjectReqSchema,
   CreateProjectResSchema,
   ProjectSchema,
@@ -183,7 +184,7 @@ router.post(
       json: z.object({
         projectId: z.string().nullish(),
         url: z.url(),
-        selector: z.string().nullish(),
+        selector: contentSelectorList.nullish(),
       }),
     },
     responses: {

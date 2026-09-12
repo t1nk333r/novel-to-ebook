@@ -488,10 +488,61 @@ export function extractFonts(page: Page) {
   return fonts;
 }
 
-export async function extractArticle(html: string, selector?: string | null) {
-  if (selector) {
+/**
+ * Collect the HTML of every block matched by any of the content selectors.
+ *
+ * `$(selector).html()` returns only the FIRST match's inner HTML, so a selector
+ * that matched several sibling blocks — an intro paragraph, the body div, a
+ * translator's note — silently dropped everything after the first. This walks
+ * the whole union instead, in document order, and skips any element already
+ * contained by one it has collected, so overlapping selectors cannot emit the
+ * same paragraph twice.
+ */
+export function collectContentHtml(
+  $: cheerio.CheerioAPI,
+  selectors: string | string[] | null | undefined,
+) {
+  const list = (Array.isArray(selectors) ? selectors : [selectors]).filter(
+    (selector): selector is string =>
+      typeof selector === "string" && selector.trim().length > 0,
+  );
+
+  if (list.length === 0) return "";
+
+  const missing = list.filter((selector) => $(selector).length === 0);
+  if (missing.length > 0) {
+    // Selector strings only — never page content.
+    console.warn(`content selector matched nothing: ${missing.join(" | ")}`);
+  }
+
+  const collected = new Set<unknown>();
+  const blocks: string[] = [];
+
+  for (const element of $(list.join(", ")).toArray()) {
+    let contained = false;
+    for (let node = element.parent; node; node = node.parent) {
+      if (collected.has(node)) {
+        contained = true;
+        break;
+      }
+    }
+
+    if (contained) continue;
+
+    collected.add(element);
+    blocks.push($.html(element));
+  }
+
+  return blocks.join("\n");
+}
+
+export async function extractArticle(
+  html: string,
+  selector?: string | string[] | null,
+) {
+  if (Array.isArray(selector) ? selector.length > 0 : Boolean(selector)) {
     const $ = cheerio.load(html);
-    const content = $(selector).html()?.trim();
+    const content = collectContentHtml($, selector).trim();
     return {
       title: "",
       author: "",
@@ -563,7 +614,7 @@ export async function tryExtractContent(
   url: string,
   options?: {
     fontDecryptMap?: Record<string, string> | null;
-    selector?: string | null;
+    selector?: string | string[] | null;
   },
 ) {
   const fonts = extractFonts(page);

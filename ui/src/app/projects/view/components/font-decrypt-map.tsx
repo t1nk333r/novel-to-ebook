@@ -57,12 +57,10 @@ export default function FontDecryptMapModal() {
     if (!decrypted?.map) return;
 
     // update project config
-    const curDecryptMap = JSON.parse(
-      project?.config?.fontDecryptMap || "{}",
-    ) as Record<string, string>;
+    const curDecryptMap = project?.config?.fontDecryptMap ?? {};
     const decryptMapObj = JSON.parse(decrypted.map) as Record<string, string>;
     const decryptMap = { ...curDecryptMap, ...decryptMapObj };
-    update.mutate({ config: { fontDecryptMap: JSON.stringify(decryptMap) } });
+    update.mutate({ config: { fontDecryptMap: decryptMap } });
 
     // update chapter
     const [content, title] = decrypted.result || [];

@@ -134,12 +134,8 @@ export interface paths {
             requestBody?: {
                 content: {
                     "application/json": {
-                        id?: number;
-                        /** Format: uuid */
-                        projectId?: string;
                         title?: string;
                         content?: string;
-                        index?: number;
                     };
                 };
             };
@@ -313,7 +309,12 @@ export interface paths {
                             title: string;
                             author: string;
                             cover: string;
-                            config?: unknown | null;
+                            config?: {
+                                outDir?: string | null;
+                                fontDecryptMap?: {
+                                    [key: string]: string;
+                                } | null;
+                            } | null;
                             language: string;
                             /** Format: date-time */
                             createdAt: string;
@@ -393,7 +394,12 @@ export interface paths {
                             title: string;
                             author: string;
                             cover: string;
-                            config?: unknown | null;
+                            config?: {
+                                outDir?: string | null;
+                                fontDecryptMap?: {
+                                    [key: string]: string;
+                                } | null;
+                            } | null;
                             language: string;
                             /** Format: date-time */
                             createdAt: string;
@@ -420,7 +426,12 @@ export interface paths {
                         title?: string;
                         author?: string;
                         cover?: string;
-                        config?: unknown | null;
+                        config?: {
+                            outDir?: string | null;
+                            fontDecryptMap?: {
+                                [key: string]: string;
+                            } | null;
+                        } | null;
                         language?: string;
                     };
                 };
@@ -438,7 +449,12 @@ export interface paths {
                             title: string;
                             author: string;
                             cover: string;
-                            config?: unknown | null;
+                            config?: {
+                                outDir?: string | null;
+                                fontDecryptMap?: {
+                                    [key: string]: string;
+                                } | null;
+                            } | null;
                             language: string;
                             /** Format: date-time */
                             createdAt: string;
@@ -499,7 +515,7 @@ export interface paths {
                         projectId?: string | null;
                         /** Format: uri */
                         url: string;
-                        selector?: string | null;
+                        selector?: (string | string[]) | null;
                     };
                 };
             };
@@ -898,6 +914,13 @@ export interface paths {
                     content: {
                         "application/epub+zip": unknown;
                     };
+                };
+                /** @description Not modified */
+                304: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };

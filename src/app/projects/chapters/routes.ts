@@ -66,7 +66,9 @@ router.get("/import", (c) => {
 
   return streamSSE(c, async (stream) => {
     const sendTasks = () => {
-      const tasks = importQueue.getTasks();
+      // Namespace-filtered: without the argument every project's stream listed
+      // every task in the process-wide queue.
+      const tasks = importQueue.getTasks(projectId);
       const data = tasks.map((i) => ({
         id: i.id,
         title: i.title,

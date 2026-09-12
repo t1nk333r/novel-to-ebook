@@ -41,7 +41,14 @@ router.post(
     responses: { 204: { description: "No content" } },
   }),
   async (c) => {
-    await rescanLibrary();
+    const result = await rescanLibrary();
+    if (!result.ok) {
+      throw new HTTPError("Library scan failed", {
+        status: 500,
+        code: "LIBRARY_SCAN_FAILED",
+      });
+    }
+
     return c.var.res(204, null);
   },
 );

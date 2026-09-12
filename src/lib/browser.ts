@@ -11,7 +11,7 @@ import { PuppeteerBlocker } from "@ghostery/adblocker-puppeteer";
 import { waitFor } from "./utils";
 import { type Action, type ActionWithLoopUntil } from "../app/projects/schema";
 
-let browser: Browser | null = null;
+let browserPromise: Promise<Browser> | null = null;
 let blocker: PuppeteerBlocker | null = null;
 
 const blockResources = BlockResourcesPlugin({
@@ -27,8 +27,12 @@ const blockResources = BlockResourcesPlugin({
 });
 
 export async function getBrowser(opt?: { headless?: boolean }) {
-  if (!browser) {
-    browser = await puppeteer.use(StealthPlugin()).launch({
+  // Single-flight: the executor admits several callers at cold start, and a
+  // bare `if (!browser)` check left the second caller launching its own
+  // Chromium whose handle was then overwritten — leaking a process for the
+  // life of the server.
+  browserPromise ??= (async () => {
+    const launched = await puppeteer.use(StealthPlugin()).launch({
       headless: opt?.headless ?? true,
       args: [
         "--no-sandbox",
@@ -39,9 +43,14 @@ export async function getBrowser(opt?: { headless?: boolean }) {
       // userDataDir: "./browser-data", // Specify a directory path
     });
     blocker = await PuppeteerBlocker.fromPrebuiltAdsAndTracking(fetch);
-  }
 
-  return browser;
+    return launched;
+  })().catch((err) => {
+    browserPromise = null; // a failed launch must not poison later attempts
+    throw err;
+  });
+
+  return browserPromise;
 }
 
 export async function newBrowserPage(opt?: {

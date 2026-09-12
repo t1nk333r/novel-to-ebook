@@ -68,7 +68,12 @@ export class QueueManager {
   }
 
   private emit<K extends keyof EventMap>(event: K, task: EventMap[K]) {
-    this.listeners[event]?.forEach((fn) => fn(task));
+    // Listeners can be async — the SSE handlers write to a socket. Writing to
+    // a disconnected client must not surface as an unhandled rejection, and
+    // the route's own abort loop tears the listener down within a second.
+    this.listeners[event]?.forEach((fn) => {
+      Promise.resolve(fn(task)).catch(() => {});
+    });
   }
 
   on<K extends keyof EventMap>(event: K, fn: Listener<K>) {
@@ -110,14 +115,14 @@ export class QueueManager {
   }
 
   private async process() {
-    const queueList = this.queue
-      .filter((i) => i.status === "queued")
-      .map((_, idx) => idx);
-
-    while (this.running < this.config.maxConcurrent && queueList.length > 0) {
-      const taskIdx = queueList.shift()!;
-      const task = this.queue[taskIdx];
-      if (!task) continue;
+    while (this.running < this.config.maxConcurrent) {
+      // Pick the task itself, never an index into a filtered copy: finished
+      // tasks stay in `queue` for 30s so progress streams can still report
+      // them, and indexing the filtered list against the unfiltered array
+      // re-ran the most recent finished task — re-extracting every link and
+      // inserting the chapters a second time.
+      const task = this.queue.find((t) => t.status === "queued");
+      if (!task) return;
 
       this.run(task);
 
@@ -160,9 +165,10 @@ export class QueueManager {
         this.emit("retrying", task);
         this.emit("update", task);
 
+        // The task object is still in `queue`; re-queueing is a status flip,
+        // not a second entry (a push would duplicate it in progress streams).
         setTimeout(() => {
           task.status = "queued";
-          this.queue.push(task);
           this.process();
         }, task.retryDelay);
       } else {
@@ -177,15 +183,17 @@ export class QueueManager {
       if (task.status === "success" || task.status === "error") {
         this.emit("finished", task);
         this.emit("update", task);
-      }
 
-      setTimeout(() => {
-        const taskIdx = this.queue.indexOf(task);
-        if (taskIdx >= 0) {
-          this.queue.splice(taskIdx, 1);
-          this.emit("update", task);
-        }
-      }, 30 * 1000);
+        // Retire the finished task once progress streams have had a chance to
+        // report it. Only terminal tasks are retired: a retry is still live.
+        setTimeout(() => {
+          const taskIdx = this.queue.indexOf(task);
+          if (taskIdx >= 0) {
+            this.queue.splice(taskIdx, 1);
+            this.emit("update", task);
+          }
+        }, 30 * 1000);
+      }
 
       this.process();
     }

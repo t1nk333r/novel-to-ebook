@@ -3,12 +3,25 @@ import { limits } from "../../lib/limits";
 
 const boundedSelector = z.string().min(1).max(limits.selectorLength);
 
+/**
+ * One content selector, or several. Picked elements arrive as a list; a
+ * hand-typed value arrives as a string and is normalized here so every consumer
+ * downstream sees a list. Existing callers that sent a single string keep
+ * working unchanged.
+ */
+export const contentSelectorList = z
+  .union([
+    boundedSelector,
+    boundedSelector.array().min(1).max(limits.contentSelectors),
+  ])
+  .transform((value) => (Array.isArray(value) ? value : [value]));
+
 export const SelectorSchema = z.object({
   title: z.string().min(1),
   chapter: z.string().nullish(),
   isChapterInTitle: z.boolean().nullish(),
   titleSeparator: z.string().nullish(),
-  content: z.string().min(1),
+  content: contentSelectorList,
   urls: z
     .object({
       nextChapter: z.string().nullish(),
@@ -24,7 +37,7 @@ export const selectorExample: Selector = {
   chapter: "h2.chapter",
   isChapterInTitle: true,
   titleSeparator: "-",
-  content: "div.reading-content",
+  content: ["div.reading-content"],
   urls: {
     nextChapter: null,
     prevChapter: "a.prev-chapter",
@@ -153,7 +166,7 @@ export const SnapshotRequestSchema = z.object({
 const extractRequestSelectors = z.object(
   {
     chapter: z.string().min(1, { message: "chapter selector is required" }),
-    content: z.string().min(1, { message: "content selector is required" }),
+    content: contentSelectorList,
   },
   { error: "selectors is required" },
 );

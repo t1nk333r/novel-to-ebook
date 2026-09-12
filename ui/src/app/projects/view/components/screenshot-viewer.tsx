@@ -16,6 +16,7 @@ type Props = {
   screenshot?: string | null;
   elements?: any[] | null;
   selectedSelector?: string | null;
+  selectedSelectors?: string[] | null;
   includeElements?: string[];
   excludeElements?: string[];
   pageSize?: { width: number; height: number } | null;
@@ -30,6 +31,7 @@ const ScreenshotViewer = ({
   screenshot,
   elements,
   selectedSelector,
+  selectedSelectors,
   includeElements,
   excludeElements,
   pageSize,
@@ -186,7 +188,16 @@ const ScreenshotViewer = ({
       containerRef.current?.removeEventListener("wheel", handleWheel);
   }, [handleWheel]);
 
-  const selectedEl = elementList.find((el) => el.selector === selectedSelector);
+  // A list wins when given; the single prop stays for the callers that still
+  // pass one, so both flows render through the same rects.
+  const activeSelectors = useMemo(
+    () => selectedSelectors ?? (selectedSelector ? [selectedSelector] : []),
+    [selectedSelectors, selectedSelector],
+  );
+  const selectedEls = useMemo(
+    () => elementList.filter((el) => activeSelectors.includes(el.selector)),
+    [elementList, activeSelectors],
+  );
 
   useImperativeHandle(
     ref,
@@ -252,19 +263,20 @@ const ScreenshotViewer = ({
               );
             })}
 
-            {selectedEl && (
+            {selectedEls.map((el) => (
               <rect
-                x={selectedEl.box.x}
-                y={selectedEl.box.y}
-                width={selectedEl.box.w}
-                height={selectedEl.box.h}
+                key={el.selector}
+                x={el.box.x}
+                y={el.box.y}
+                width={el.box.w}
+                height={el.box.h}
                 fill="rgba(0,229,255,0.12)"
                 stroke="#00e5ff"
                 strokeWidth="2"
               />
-            )}
+            ))}
 
-            {hoveredElement && hoveredElement.selector !== selectedSelector && (
+            {hoveredElement && !activeSelectors.includes(hoveredElement.selector) && (
               <rect
                 x={hoveredElement.box.x}
                 y={hoveredElement.box.y}
@@ -285,7 +297,7 @@ const ScreenshotViewer = ({
                   width={hoveredElement.tag.length * 7 + 16}
                   height={18}
                   fill={
-                    hoveredElement.selector === selectedSelector
+                    activeSelectors.includes(hoveredElement.selector)
                       ? "#00e5ff"
                       : "#ff6b6b"
                   }

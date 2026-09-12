@@ -59,6 +59,7 @@ export default function AddChapterModal() {
     defaultValues: { type: null },
   });
   const type = useWatch({ control: form.control, name: "type" });
+  const selectorValue = useWatch({ control: form.control, name: "selector" });
   const [isPending, setPending] = useState(false);
 
   const create = $api.useMutation("post", "/projects/{projectId}/chapters", {
@@ -226,7 +227,14 @@ export default function AddChapterModal() {
                   <InputGroup>
                     <InputGroupInput
                       placeholder="optional, e.g. body > article"
-                      {...form.register("selector")}
+                      value={
+                        Array.isArray(selectorValue)
+                          ? selectorValue.join(", ")
+                          : (selectorValue ?? "")
+                      }
+                      onChange={(e) =>
+                        form.setValue("selector", e.target.value)
+                      }
                     />
                     <InputGroupAddon align="inline-end">
                       <InputGroupButton
@@ -236,8 +244,8 @@ export default function AddChapterModal() {
                           if (!url) return;
                           customSelectorModal.onOpen({
                             url,
-                            onSelect(selector) {
-                              form.setValue("selector", selector);
+                            onSelect(selectors) {
+                              form.setValue("selector", selectors);
                             },
                           });
                         }}
