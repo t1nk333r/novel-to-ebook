@@ -893,6 +893,12 @@ export function findDocumentChapterTitle(doc: Document) {
 }
 
 /**
+ * A chrome match holding at least this many words — and at least half of the
+ * capture — is the content itself, not furniture.
+ */
+const CONTENT_SIZE_FLOOR = 40;
+
+/**
  * Containers that are site furniture rather than the chapter itself, matched on
  * class/id tokens so a site's own naming does not need to be listed verbatim.
  *
@@ -937,16 +943,36 @@ function isChromeToken(value: string | undefined) {
  * Remove site furniture from extracted chapter HTML. Returns the cleaned markup
  * and how many top-level blocks were dropped, so the caller can log a count
  * without logging any content.
+ *
+ * A matching block that holds most of the capture is the content, not furniture,
+ * and is kept: Webnovel tags its chapter container with `para-comment-allowed`
+ * (it enables per-paragraph comment threads), which matched the comments pattern
+ * and deleted the whole chapter — prose and all. The picker made this reachable
+ * by offering the container, and the failure was silent: 1,368 words in, a
+ * "nothing usable left after cleaning" error out.
  */
 export function stripSiteChrome(html: string) {
   const $ = cheerio.load(html);
   let removed = 0;
 
+  const wordsOf = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
+
+  const totalWords = wordsOf($("body").text());
+  // Small chapters are common (a short epilogue); the floor keeps a *note* from
+  // being rescued by being the only text in its own capture.
+  const majority = Math.max(CONTENT_SIZE_FLOOR, totalWords * 0.5);
+
   $("*").each((_, el) => {
-    if (isChromeToken($(el).attr("class")) || isChromeToken($(el).attr("id"))) {
-      $(el).remove();
-      removed++;
+    const element = $(el);
+
+    if (!isChromeToken(element.attr("class")) && !isChromeToken(element.attr("id"))) {
+      return;
     }
+
+    if (wordsOf(element.text()) >= majority) return;
+
+    element.remove();
+    removed++;
   });
 
   return { html: $.html(), removed };

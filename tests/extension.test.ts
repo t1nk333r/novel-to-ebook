@@ -3,6 +3,7 @@ import path from "node:path";
 import puppeteer from "puppeteer";
 import type { Page } from "puppeteer";
 import { findBrowser } from "./browser";
+import { guessContentSelector, pickContentSelector } from "../extension/content.js";
 
 /**
  * The companion extension, driven the way a browser runs it.
@@ -67,6 +68,91 @@ afterAll(() => {
 async function waitFor(popup: Page, condition: () => boolean, timeoutMs = 15_000) {
   await popup.waitForFunction(condition, { timeout: timeoutMs });
 }
+
+describe.skipIf(!executablePath)("page-side capture functions", () => {
+  test("the picker returns the content block, not the clicked paragraph", async () => {
+    if (!executablePath) return;
+    const browser = await puppeteer.launch({
+      executablePath,
+      headless: true,
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"],
+    });
+
+    try {
+      const page = await browser.newPage();
+      await page.goto(`http://127.0.0.1:${PORT}/fixture`, { waitUntil: "domcontentloaded" });
+
+      // Clicking the middle of the prose lands on the <p>, which must not become
+      // the selector: that would capture one paragraph of the chapter.
+      const target = await page.evaluate(() => {
+        const element = document.querySelector(".cha-words p");
+        const rect = element.getBoundingClientRect();
+        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, clicked: element.tagName };
+      });
+      expect(target.clicked).toBe("P");
+
+      // The picker waits for input, so the click has to happen while it runs.
+      const [selector] = await Promise.all([
+        page.evaluate(pickContentSelector),
+        (async () => {
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          await page.mouse.move(target.x, target.y);
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          await page.mouse.click(target.x, target.y);
+        })(),
+      ]);
+
+      expect(typeof selector).toBe("string");
+
+      // It must resolve to exactly one element, and that element must hold the
+      // whole chapter rather than the paragraph that was clicked.
+      const resolved = await page.evaluate((value) => {
+        const matches = document.querySelectorAll(value);
+        const picked = matches[0];
+        return {
+          count: matches.length,
+          holdsProse: Boolean(picked?.querySelector(".cha-words")),
+          words: (picked?.textContent || "").trim().split(/\s+/).filter(Boolean).length,
+        };
+      }, selector);
+
+      expect(resolved.count).toBe(1);
+      expect(resolved.holdsProse).toBe(true);
+      expect(resolved.words).toBeGreaterThan(150);
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+
+  test("the guess finds the chapter block when nothing has been picked yet", async () => {
+    if (!executablePath) return;
+    const browser = await puppeteer.launch({
+      executablePath,
+      headless: true,
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"],
+    });
+
+    try {
+      const page = await browser.newPage();
+      await page.goto(`http://127.0.0.1:${PORT}/fixture`, { waitUntil: "domcontentloaded" });
+
+      const guessed = await page.evaluate(guessContentSelector);
+      expect(typeof guessed).toBe("string");
+
+      const holds = await page.evaluate((selector) => {
+        const element = document.querySelector(selector);
+        const words = (element?.textContent || "").split(/\s+/).length;
+        return { found: Boolean(element), words };
+      }, guessed);
+
+      expect(holds.found).toBe(true);
+      // The fixture's prose block, not the nav or the page shell.
+      expect(holds.words).toBeGreaterThan(150);
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+});
 
 describe.skipIf(!executablePath)("companion extension", () => {
   test("worker fetches the API, capture posts the page, server cleans it", async () => {

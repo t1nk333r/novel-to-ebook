@@ -38,6 +38,7 @@ status here.
 | 027 | Import the chapters a reader page loads while scrolling | P2 | M | 020, 021 | DONE (verified 2026-09-12 — 7 chapters from one URL, 13 through the UI) |
 | 028 | Import a whole book, resuming where it stopped | P2 | M | 027 | DONE (verified 2026-09-12 — 13 chapters in 20s, resume with no duplicates) |
 | 029 | Companion browser extension | P2 | M | 023, 027, 028 | DONE (verified 2026-09-12 — real page captured with no server browser) |
+| 030 | A chrome match must never delete the content block | P1 | S | 019, 029 | DONE (2026-09-12 — `para-comment-allowed` deleted whole chapters) |
 
 Status values: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED`, or `REJECTED`.
 `DONE (verified …)` means the done criteria were re-checked against the working
@@ -96,6 +97,22 @@ finished work — see the commit for the starvation measurement; plus the browse
 launch race, the out-of-policy font fetch, the silently swallowed scan failure,
 the reorder/NOT NULL race, the cross-project import stream, and two UI
 robustness fixes. `tests/queue-manager.test.ts` pins the queue contract.
+
+### 2026-09-12 — plan 030 (chrome match deleting the content block)
+
+Found while verifying the plan 029 picker on the live chapter, and a real bug on
+the server side of things too: Webnovel marks its chapter container
+`para-comment-allowed`, which matches the `comments?` chrome pattern, so
+`stripSiteChrome` deleted the chapter whole — 1,368 words in, 49 words of promo
+out, `400 Nothing usable left after cleaning the capture` as the only signal.
+Selectors used so far all sat below the container, which is why nobody had hit it;
+both the extension's content-block picker and the server's own snapshot picker can
+now reach that level.
+
+Fixed by keeping a matching block that holds ≥ 40 words and ≥ half the capture:
+furniture is by definition a minority of a chapter. Evidence: the new test fails
+with `<html><head></head><body></body></html>` when the guard is reverted, and the
+live `#page` capture went from 49 to 1,322 cleaned words.
 
 ### 2026-09-12 — plan 029 executed (companion extension, v0.1)
 

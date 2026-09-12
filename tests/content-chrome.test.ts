@@ -74,6 +74,28 @@ describe("stripSiteChrome", () => {
     expect(html).toContain("Some text.");
   });
 
+  test("keeps the chapter when its own container matches a chrome pattern", () => {
+    // Webnovel tags the chapter container with `para-comment-allowed` (it enables
+    // per-paragraph comment threads). The comments pattern matched that token and
+    // deleted the entire chapter: 1,368 words in, nothing out. Selecting the
+    // container — which the picker offers — is enough to hit this.
+    const { html, removed } = stripSiteChrome(`
+<div class="chapter_content j_chapter_31586142793028464 para-comment-allowed">
+  <div class="cha-words">
+    <p>December 31st, 1999. The whole world stands upon the precipice of a new millennia,
+    while snow falls over a city that does not yet know what is coming for it.</p>
+    <p>He woke to the sound of the clock and the smell of smoke from the chimney below.</p>
+  </div>
+  <div class="m-thou">CREATORS' THOUGHTS</div>
+</div>`);
+
+    expect(html).toContain("precipice");
+    expect(html).toContain("smell of smoke");
+    expect(html).not.toContain("CREATORS' THOUGHTS");
+    // Only the note is furniture here.
+    expect(removed).toBe(1);
+  });
+
   test("can empty content entirely when every block is furniture", () => {
     const { html, removed } = stripSiteChrome(
       `<div class="cha-content"><div class="m-thou">note</div></div>`,

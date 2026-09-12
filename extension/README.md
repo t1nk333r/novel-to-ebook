@@ -27,8 +27,12 @@ selector is exact.
    your server uses one, the **API token** from its `API_TOKEN`. Save.
    - Loopback servers need no token.
    - A non-loopback server prompts for permission to reach that origin once.
-3. **Pick content** — click the chapter's text block in the page. The selector is
-   remembered per site, so later chapters are one click.
+3. **Pick content** — click anywhere in the chapter text. A click picks the
+   *content block*, not the exact element: clicking a paragraph selects the
+   chapter around it, because a single paragraph would silently truncate the
+   chapter to one screen of text. Shift-click takes the exact element under the
+   cursor when you want that instead. The selector is remembered per site, so
+   later chapters are one click.
 4. **Send chapter** — the captured markup goes to the server, which cleans it the
    same way the importers do (scripts, ads, author-note blocks and comment
    widgets removed) and appends it to the chosen project.
@@ -64,7 +68,12 @@ never sends, and all of it would otherwise reach the exported book.
 
 - Chromium/Manifest V3 only; Firefox packaging is not attempted.
 - A site whose content is split across several elements needs the selector to be
-  a CSS union (comma-separated) — the server accepts that.
+  a CSS union (comma-separated) — the server accepts that. Shift-click is the way
+  to narrow a pick that climbed too far.
+- The captured markup is cleaned server-side; if a site tags its chapter
+  container with something that looks like furniture (Webnovel does:
+  `para-comment-allowed`), the server keeps the block rather than deleting the
+  chapter — see plan 030.
 - The extension does not track progress or dedupe: those live on the server. Send
   the same chapter twice and you get it twice.
 - Development: `tests/extension.test.ts` loads this directory into a real
