@@ -163,12 +163,16 @@ Built from the multi-stage `Dockerfile` (Node 24 builds the UI, `oven/bun:1.4-de
 runs it, distro Chromium via `PUPPETEER_EXECUTABLE_PATH`). `docker-compose.yml`
 publishes on `0.0.0.0:3000` at the user's explicit instruction.
 
-**The running container is unauthenticated** — it has no `API_TOKEN` and
-`ALLOW_INSECURE_BIND=1` permits the tokenless non-loopback bind, so anything that
-can route to port 3000, including every tailnet device, has full control of the
-browser-automation and AI endpoints. Since plan 023 landed this is now fixable
-without a code change: set `API_TOKEN` in `docker-compose.yml`, rebuild, and the
-UI will prompt for it on first load (once per browser).
+**It is now authenticated.** Rebuilt 2026-09-02 with `API_TOKEN` supplied from
+the operator's environment; the token is *not* in the repo — it lives in a
+`chmod 600` file outside the checkout, and `docker-compose.yml` interpolates it.
+The UI prompts for it on first load, once per browser. Verified from a headless
+browser against the running container: `/api` requests carry no header and get
+401 before entry, and carry `Authorization` + 200 after.
+
+Recreating the container *without* `API_TOKEN` exported silently drops back to
+unauthenticated mode (the server does log a startup warning) — export it in the
+same shell as `docker compose up -d`, or the deployment reopens.
 
 **No PWA/offline over plain HTTP.** Service workers need a secure context, so
 offline caching works at `127.0.0.1` but not from other devices.
@@ -186,18 +190,16 @@ Plan 014's **migration 0002 renumbers every project's chapters** to a dense
 
 **Immediately available, no decisions needed:**
 
-1. **Rebuild and redeploy with `API_TOKEN` set** — plan 023 landed, so the UI can
-   authenticate now; the deployment is only open because the container predates
-   it and carries no token. Back up the DB volume first, per §6.
-2. **Clean up worktrees.** Four `.claude/worktrees/agent-*` remain registered and
-   are fully merged (`git branch --no-merged HEAD` is empty): `git worktree remove <path>`
-   for each, then add `.claude/` to `.gitignore` (it is currently untracked and
-   unignored).
-3. **Plan 020** — multi-select content selectors. Unblocked now that 019 landed.
-4. **Plan 008 step 3** — wire `BoundedExecutor`.
-5. **Plan 016** — incremental library scan.
-6. **Verify the token flow end to end after redeploy** — the local proof used a
-   throwaway token on port 3010 with a scratch database, not the container.
+Done since this list was written: worktree cleanup plus `.claude/` in
+`.gitignore`, the rebuild-with-token deploy, and plan 008 step 3 — see §3 and the
+`plans/README.md` reconciliation log.
+
+1. **Plan 020** — multi-select content selectors. Unblocked now that 019 landed.
+2. **Plan 016** — incremental library scan.
+3. **Verify the ceilings under real load** — the 3×200 / 1×429 proof was four
+   concurrent snapshots against a single page; a full import run is the next
+   check.
+4. **Plan 022** — Ollama page parser, once 020/021 land.
 
 **Needs a decision:**
 

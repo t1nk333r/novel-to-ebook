@@ -29,7 +29,9 @@ services:
       ALLOW_INSECURE_BIND: "1"
       DATA_PATH: /app/data
       DATABASE_URL: /app/storage/storvi.sqlite
-      # Optional. When set, every API request must send `Authorization: Bearer`.
+      # Optional, but the deployment is authenticated only while it is set:
+      # `docker compose up -d` with no API_TOKEN in the environment recreates
+      # the container unauthenticated (the server logs a startup warning).
       # The web UI prompts for it on the first 401 and stores it per browser.
       API_TOKEN: ${API_TOKEN:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}

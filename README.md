@@ -44,8 +44,11 @@ extraction pipeline, so no local Bun or Node install is needed.
   reachable over Tailscale and over any LAN the host has joined. Storvi has no
   user accounts, and its endpoints drive a headless browser and can spend AI
   quota, so set `API_TOKEN` in the container's environment (the UI will prompt
-  for it) and/or restrict access with a Tailscale ACL or host firewall rule. For
-  local-only use, change the mapping back to `127.0.0.1:3000:3000`.
+  for it) and/or restrict access with a Tailscale ACL or host firewall rule. An
+  `API_TOKEN` supplied at `docker compose up` time stays with the container until
+  it is recreated — recreate it with the variable exported, or it comes back
+  unauthenticated. For local-only use, change the mapping back to
+  `127.0.0.1:3000:3000`.
 
 ## Configuration
 
