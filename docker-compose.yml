@@ -35,6 +35,10 @@ services:
       # The web UI prompts for it on the first 401 and stores it per browser.
       API_TOKEN: ${API_TOKEN:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      # Optional but recommended: a local model for selector generation. Leaving
+      # this unset disables local AI (Gemini is then used if its key is set).
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5-coder:7b}
 
     volumes:
       # Your EPUB/PDF library. Read-write: exports are written back here.
@@ -51,5 +55,46 @@ services:
     security_opt:
       - seccomp:unconfined
 
+    depends_on:
+      - ollama
+
+  # Local model server for selector generation. Opt-in on the Storvi side: the
+  # parser is only ever invoked from the UI, so it cannot contend with other
+  # GPU work (Jellyfin transcoding, in the reference deployment) unprompted.
+  ollama:
+    image: ollama/ollama:latest
+    container_name: storvi-ollama
+    restart: unless-stopped
+
+    # No `ports:` on purpose. Publishing this would expose an unauthenticated
+    # endpoint that can consume the GPU to the LAN and tailnet; only Storvi
+    # needs it, over the compose network.
+    environment:
+      # With ~4.7 GB of weights on an 8 GB card these two are what make a usable
+      # context window fit.
+      OLLAMA_FLASH_ATTENTION: "1"
+      OLLAMA_KV_CACHE_TYPE: q8_0
+      # The GPU is shared, so the model unloads when idle: the next request pays
+      # a reload. Raise to 30m on a dedicated card to avoid that latency.
+      OLLAMA_KEEP_ALIVE: 5m
+
+    volumes:
+      # Model store. On TrueNAS bind-mount a ZFS dataset here (~5 GB for the
+      # 7B model) instead of using this named volume; see README.
+      - ollama-models:/root/.ollama
+
+    # GPU access. Plain Docker honours the reservation; some TrueNAS versions
+    # only look at `runtime`, so both are set to stay portable. Neither grants
+    # the storvi service any GPU access.
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
 volumes:
   storvi-db:
+  ollama-models:

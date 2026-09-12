@@ -374,6 +374,103 @@ async function findChildFrame(parent: Frame, segment: string) {
   return null;
 }
 
+/**
+ * Reduce a page to the structure a selector model needs: tags, ids and classes,
+ * plus the *length* of each text node as `«142»` — never the text itself, which
+ * is what blows a small model's context window. Long runs of sibling elements
+ * that share a tag and class collapse to a few examples plus a count, because a
+ * chapter list is one repeated pattern rather than a hundred distinct ones.
+ *
+ * Pure and JSDOM-only, so it is testable without a browser.
+ */
+export function htmlSkeleton(html: string, maxBytes: number) {
+  const dom = new JSDOM(html);
+  const { document } = dom.window;
+
+  document
+    .querySelectorAll("script, style, svg, noscript, iframe, video")
+    .forEach((el) => el.remove());
+
+  const walk = (node: Element | ChildNode): string => {
+    if (node.nodeType === 3) {
+      const text = (node.textContent ?? "").replace(/\s+/g, " ").trim();
+      return text.length > 0 ? `«${text.length}»` : "";
+    }
+
+    if (node.nodeType !== 1) return "";
+
+    const element = node as Element;
+    const tag = element.tagName.toLowerCase();
+    const id = element.getAttribute("id");
+    const className = element.getAttribute("class");
+    const attrs =
+      (id ? ` id="${id}"` : "") +
+      (className ? ` class="${className.trim().replace(/\s+/g, " ")}"` : "");
+
+    const children = Array.from(element.childNodes);
+    const parts: string[] = [];
+    let index = 0;
+
+    while (index < children.length) {
+      const child = children[index]!;
+      const signature = childSignature(child, tag);
+      let run = 1;
+
+      if (signature) {
+        while (
+          index + run < children.length &&
+          childSignature(children[index + run]!, tag) === signature
+        ) {
+          run++;
+        }
+      }
+
+      const elementChildren = children
+        .slice(index, index + run)
+        .filter((c) => c.nodeType === 1);
+
+      if (run > 5 && elementChildren.length === run) {
+        for (const item of elementChildren.slice(0, 3)) {
+          parts.push(walk(item));
+        }
+        parts.push(`«… ${run - 3} more ${signature}»`);
+      } else {
+        for (const item of children.slice(index, index + run)) {
+          parts.push(walk(item));
+        }
+      }
+
+      index += run;
+    }
+
+    return `<${tag}${attrs}>${parts.join("")}</${tag}>`;
+  };
+
+  const body = document.body ?? document.documentElement;
+  let skeleton = walk(body);
+
+  if (skeleton.length > maxBytes) {
+    const cut = skeleton.lastIndexOf(">", maxBytes);
+    skeleton = `${skeleton.slice(0, cut > 0 ? cut + 1 : maxBytes)}«truncated»`;
+  }
+
+  return skeleton;
+}
+
+/** Tag + class of a child, or null when it cannot start a collapsible run. */
+function childSignature(node: ChildNode, parentTag: string) {
+  if (node.nodeType !== 1) return null;
+
+  const tag = (node as Element).tagName.toLowerCase();
+  // A nested same-tag element would make a run ambiguous to collapse.
+  if (tag === parentTag) return null;
+
+  const className = (node as Element).getAttribute("class")?.trim();
+  return className
+    ? `${tag}.${className.split(/\s+/).join(".")}`
+    : tag;
+}
+
 export async function extractContent(page: Page, url: string, selectors: any) {
   await assertSafeOutboundUrl(url);
   await page.goto(url, {

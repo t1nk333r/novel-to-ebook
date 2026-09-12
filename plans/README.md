@@ -30,7 +30,7 @@ status here.
 | 019 | Generate content selectors that match exactly the intended element | P2 | S | 002 | DONE (merged 2026-09-02) |
 | 020 | Let the picker select multiple content elements | P2 | M | 019 | DONE (verified 2026-09-12) |
 | 021 | Make the selector picker and extraction work inside iframes | P2 | M | 019, 020 | DONE (verified 2026-09-12 — in-frame elements offered and extractable) |
-| 022 | Add a local Ollama backend for AI selector generation | P3 | M | 021 | TODO |
+| 022 | Add a local Ollama backend for AI selector generation | P3 | M | 021 | DONE (verified 2026-09-12 — offline tests; `z.toJSONSchema` STOP condition resolved with `io: "input"`) |
 | 023 | Let the web UI authenticate with the API bearer token | P1 | M | 004 | DONE (verified 2026-09-02) |
 | 024 | Validate every Chromium navigation, not just the entry URL | P1 | M-L | 005 | DONE (verified 2026-09-12 — redirect into loopback blocked) |
 | 025 | Finish the picker → save flow (stacked Radix dialogs) | P1 | S-M | 020 | DONE (verified 2026-09-12 — silent validation, not a dead dialog; see the plan's Resolution) |
@@ -93,6 +93,34 @@ finished work — see the commit for the starvation measurement; plus the browse
 launch race, the out-of-policy font fetch, the silently swallowed scan failure,
 the reorder/NOT NULL race, the cross-project import stream, and two UI
 robustness fixes. `tests/queue-manager.test.ts` pins the queue contract.
+
+### 2026-09-12 — plan 022 executed (local Ollama selector generation)
+
+`generateSelectors` was finished, schema-validated and had no callers. It now has
+a route and a local backend: with `OLLAMA_URL` set, selector generation runs
+against the operator's own model, no key required and no page content leaving the
+machine.
+
+The plan's STOP condition about `z.toJSONSchema(SelectorSchema)` fired — plan 020
+turned `content` into a transform, and zod cannot represent transforms as JSON
+Schema. Resolved with `{ io: "input" }` on the same schema: still derived, never
+hand-written, and the correct direction since the model's reply must parse *into*
+SelectorSchema. A test keeps the derived schema and the validator in step.
+
+Also landed: trusted-endpoint validation for `OLLAMA_URL` at startup (private
+addresses allowed on purpose, deliberately outside the SSRF policy that guards
+scraped URLs); `htmlSkeleton`, which sends structure and text *lengths* rather
+than prose and collapses long runs of identical siblings; a `503` route when no
+provider is configured; serialized local inference with a `finally` release; an
+`ollama` compose sidecar with no published port and GPU access confined to it;
+and README coverage including the TrueNAS constraints.
+
+Evidence: 18 offline tests (stubbed `fetch`, no Ollama process needed); the
+serialization test fails when the queue is bypassed, checked by bypassing it;
+`docker compose config --quiet` exits 0 with no `ports` on the Ollama service.
+Note for the TrueNAS deployment: the app's compose YAML lives in the Apps
+configuration, not this repo — a change here (new env var, renamed service) must
+be mirrored there by hand.
 
 ### 2026-09-12 — plan 021 executed (iframes are selectable and extractable)
 

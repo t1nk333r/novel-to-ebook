@@ -1,12 +1,15 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { translate, uuid, waitFor } from "../../lib/utils";
+import { generateSelectors, translate, uuid, waitFor } from "../../lib/utils";
+import { resolveAiProvider } from "../../lib/ai-provider";
 import {
   ActionSchema,
   contentSelectorList,
   CreateProjectReqSchema,
   CreateProjectResSchema,
+  GenerateSelectorsRequestSchema,
   ProjectSchema,
+  SelectorSchema,
   SnapshotRequestSchema,
   TranslateRequestSchema,
   TranslateResponseSchema,
@@ -25,6 +28,7 @@ import {
   framePathOf,
   getCleanHTML,
   getProjectConfig,
+  htmlSkeleton,
   tryExtractContent,
   updateProjectConfig,
 } from "./utils";
@@ -490,6 +494,41 @@ router.post(
 
     const result = await translate(text, to);
     return c.json({ result });
+  },
+);
+
+// Generate content selectors with the configured AI backend (opt-in; never
+// triggered by a snapshot, so it cannot contend with other GPU work).
+router.post(
+  "/generate-selectors",
+  openApi({
+    tags: ["Projects"],
+    summary: "Generate content selectors",
+    request: {
+      json: GenerateSelectorsRequestSchema,
+    },
+    responses: {
+      200: SelectorSchema,
+      503: z.object({ error: z.boolean(), message: z.string() }),
+    },
+  }),
+  async (c) => {
+    const { html, followUp } = c.req.valid("json");
+
+    const provider = resolveAiProvider();
+    if (provider.provider === "none") {
+      throw new HTTPError(
+        "No AI provider configured: set OLLAMA_URL for a local model or GEMINI_API_KEY for Gemini",
+        { status: 503, code: "AI_PROVIDER_UNAVAILABLE" },
+      );
+    }
+
+    const selectors = await generateSelectors(
+      htmlSkeleton(html, limits.aiSkeletonBytes),
+      followUp,
+    );
+
+    return c.var.res(selectors);
   },
 );
 

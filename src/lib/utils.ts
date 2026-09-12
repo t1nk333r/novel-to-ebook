@@ -1,7 +1,12 @@
 import sanitizeHtml from "sanitize-html";
 import { GoogleGenAI } from "@google/genai";
-import { selectorExample, SelectorSchema } from "../app/projects/schema";
+import { SelectorSchema } from "../app/projects/schema";
 import removeMd from "remove-markdown";
+import {
+  buildSelectorMessages,
+  generateSelectorsWithOllama,
+  resolveAiProvider,
+} from "./ai-provider";
 import { aiExecutor } from "./bounded-executor";
 
 let ai: GoogleGenAI | null = null;
@@ -11,42 +16,46 @@ function getAI() {
   return ai;
 }
 
+/**
+ * Generate selectors for a page, using whichever backend the operator has
+ * configured. `html` is expected to be a reduced skeleton (see `htmlSkeleton`):
+ * a local 7B model cannot fit whole-page HTML in its context.
+ *
+ * `SelectorSchema.parse` stays the single validation point for both backends.
+ */
 export async function generateSelectors(html: string, followUp?: string) {
-  const prompts = [
-    {
-      role: "user",
-      text:
-        "You're a very good web scraper. Generate html selector to extract novel title, chapter, & content from html using cheerio.\n" +
-        "The web maybe have anti scrape such as random classname, so find the best selector. If classname is random like `a.mb0` or `.cl54`, use the element itself. " +
-        "If the element is div/span and have classname, dont specify the element, just the class itself, like `div.cha-title` -> `.cha-title`. " +
-        "If the title contain chapter number, set `isChapterInTitle` to true and fill out `titleSeparator`, like '-'. If there are prev/next chapter links, fill out `urls`.\n" +
-        "Output only as JSON, no other text.\n" +
-        "Example output: \n" +
-        JSON.stringify(selectorExample) +
-        "\n\nNow Start:\n" +
-        html,
-    },
-  ];
+  const config = resolveAiProvider();
 
-  if (followUp) {
-    prompts.push({
-      role: "user",
-      text: followUp,
+  let generated: unknown;
+
+  if (config.provider === "ollama") {
+    generated = await generateSelectorsWithOllama(html, followUp, {
+      url: config.ollamaUrl,
+      model: config.ollamaModel,
     });
+  } else if (config.provider === "gemini") {
+    generated = await generateSelectorsWithGemini(html, followUp);
+  } else {
+    throw new Error(
+      "No AI provider configured: set OLLAMA_URL for a local model or GEMINI_API_KEY for Gemini",
+    );
   }
 
+  return SelectorSchema.parse(generated);
+}
+
+async function generateSelectorsWithGemini(html: string, followUp?: string) {
   const response = await aiExecutor.run(() =>
     getAI().models.generateContent({
       model: "gemini-2.5-flash",
-      contents: prompts,
+      contents: buildSelectorMessages(html, followUp),
     }),
   );
   if (!response.text) {
     throw new Error("No response");
   }
 
-  const res = JSON.parse(removeMd(response.text));
-  return SelectorSchema.parse(res);
+  return JSON.parse(removeMd(response.text));
 }
 
 export async function translate(text: string, to = "en") {

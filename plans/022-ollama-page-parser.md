@@ -20,6 +20,67 @@
 - **Depends on**: `plans/021-iframe-selectors.md`
 - **Category**: direction
 - **Planned at**: commit `a179008`, 2026-09-01
+- **Resolved**: 2026-09-12 — see "Resolution" below
+
+## Resolution 2026-09-12
+
+Selector generation now runs against a local Ollama instance, and the orphaned
+`generateSelectors` is wired to a route.
+
+**One STOP condition fired, with a documented resolution.** The plan said to
+derive structured-output schema with `z.toJSONSchema(SelectorSchema)` and to stop
+if it throws. It throws — `Transforms cannot be represented in JSON Schema` —
+because plan 020 turned `content` into a transform that normalizes one selector
+or several into a list. The resolution is `z.toJSONSchema(SelectorSchema, { io: "input" })`,
+which is still derived from the same schema (no hand-written copy) and is the
+semantically correct direction: the model emits a document that must parse
+*into* SelectorSchema. Verified output: `content` as `anyOf: [string, array]`,
+`required: ["title", "content"]`. A test asserts the derived schema and the
+validator accept the same document, so the two cannot drift.
+
+What landed:
+
+- `src/lib/ai-provider.ts` — `resolveAiProvider` (Ollama when `OLLAMA_URL` is
+  set, else Gemini, else none), endpoint validation as a **trusted operator URL**
+  (http/https, no credentials, and deliberately not routed through the SSRF
+  guard, which exists for scraped URLs and would refuse exactly these private
+  addresses), `buildSelectorMessages` (shared prompt), `selectorJsonSchema`, and
+  `generateSelectorsWithOllama` (POST `/api/chat`, `stream: false`, `format`
+  schema, `AbortSignal.timeout`).
+- Local inference is **serialized** on a promise chain that releases in a
+  `finally`, so a failed request cannot deadlock later ones — two generations on
+  one 8 GB card would thrash.
+- Errors name the status and model only; the response body is never included,
+  because it can contain page content. Logging is model + duration.
+- `htmlSkeleton(html, maxBytes)` reduces a page to tags, ids, classes and text
+  *lengths* (`«142»`), collapsing runs of more than five identical siblings — a
+  chapter list is one pattern, not a hundred. Pure and JSDOM-only.
+- `POST /projects/generate-selectors` (body `{ html, followUp? }`, `503` when no
+  provider is configured) applies the reduction before calling the generator.
+- `docker-compose.yml` gains an `ollama` sidecar with **no published port**,
+  flash attention, quantized KV cache, a 5-minute keep-alive, and GPU access on
+  that service only; README documents the pull, the host GPU check, the opt-in
+  rule, the keep-alive tradeoff and the TrueNAS constraints.
+
+**One deliberate deviation:** the shared prompt gains a line explaining the
+`«123»` placeholders. The plan said to reuse the prompt verbatim, but a model
+that has not been told what the markers mean will read them as page content.
+
+Evidence: 18 tests in `tests/ai-selectors.test.ts`, all offline (`fetch` stubbed)
+— provider resolution and endpoint validation (including that private addresses
+are accepted and `file:`/credentials are not), the derived schema, skeleton
+reduction (structure kept, text dropped, long runs collapsed, budget honoured,
+≥10× reduction on a realistic page), the Ollama call (request shape, skeleton not
+raw HTML, non-2xx without body leakage, malformed and empty replies), and
+serialization. The serialization test fails when the queue is bypassed —
+verified by bypassing it. `docker compose config --quiet` exits 0 and the Ollama
+service has no ports.
+
+**Against the plan's criterion "`git diff a179008..HEAD -- src/lib/network-policy.ts` is empty":**
+that file did change today, by plan 026 — it extracted `parseOutboundUrl` so the
+async guard and the new synchronous predicate share one implementation, and added
+`isAllowedOutboundUrl`. The blocked CIDR list is untouched and the policy now
+applies in one more place, not fewer. Plan 022 itself did not modify it.
 
 ## Why this matters
 

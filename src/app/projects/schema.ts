@@ -200,6 +200,11 @@ export const TranslateRequestSchema = z.object({
   to: z.string().min(2).max(35).optional(),
 });
 
+export const GenerateSelectorsRequestSchema = z.object({
+  html: z.string().min(1, { message: "html is required" }).max(limits.textLength),
+  followUp: z.string().max(limits.textLength).optional(),
+});
+
 export const TranslateResponseSchema = z.object({
   result: z.string(),
 });
