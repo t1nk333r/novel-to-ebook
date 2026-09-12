@@ -892,6 +892,66 @@ export function findDocumentChapterTitle(doc: Document) {
   return { hinted, first: candidates[0] ?? null };
 }
 
+/**
+ * Containers that are site furniture rather than the chapter itself, matched on
+ * class/id tokens so a site's own naming does not need to be listed verbatim.
+ *
+ * Why this exists: Webnovel's chapter container holds the prose
+ * (`div.cha-words`) *and* the author's note block (`div.m-thou`, rendered with
+ * the heading "CREATORS' THOUGHTS") *and* a share/comment strip. Picking the
+ * container therefore dragged all three into the exported book. Anything this
+ * list matches is removed from the extracted content only — never from the page
+ * while it is being read, and never from what the picker offers.
+ *
+ * To keep a site's notes in the book, drop the matching entry here.
+ */
+const CHROME_PATTERNS = [
+  /(^|[-_])thou(ght|ghts)?([-_]|$)/i, // Webnovel's author note ("m-thou")
+  /(^|[-_])author[-_]?notes?([-_]|$)/i,
+  /(^|[-_])comments?([-_]|$)/i,
+  /(^|[-_])share([-_]|$)/i,
+  /(^|[-_])social([-_]|$)/i,
+  /(^|[-_])votes?([-_]|$)/i,
+  /(^|[-_])ads?([-_]|$)/i,
+  /(^|[-_])advert(isement|ising|izing)?([-_]|$)/i,
+  /(^|[-_])promo(tion)?([-_]|$)/i,
+  /(^|[-_])related([-_]|$)/i,
+  /user[-_]links/i,
+];
+
+function isChromeToken(value: string | undefined) {
+  if (!value) return false;
+
+  // Class attributes hold several tokens ("m-thou mb24 mt40"); each is tested
+  // on its own so a token ending at a space still matches.
+  return value
+    .split(/\s+/)
+    .some(
+      (token) =>
+        token.length > 0 &&
+        CHROME_PATTERNS.some((pattern) => pattern.test(token)),
+    );
+}
+
+/**
+ * Remove site furniture from extracted chapter HTML. Returns the cleaned markup
+ * and how many top-level blocks were dropped, so the caller can log a count
+ * without logging any content.
+ */
+export function stripSiteChrome(html: string) {
+  const $ = cheerio.load(html);
+  let removed = 0;
+
+  $("*").each((_, el) => {
+    if (isChromeToken($(el).attr("class")) || isChromeToken($(el).attr("id"))) {
+      $(el).remove();
+      removed++;
+    }
+  });
+
+  return { html: $.html(), removed };
+}
+
 export function findChapterTitle(doc: Document) {
   // Find chapter title
   let title = "";
@@ -972,6 +1032,14 @@ export async function tryExtractContent(
   const contentEl = new JSDOM(content);
   const contentChapter = findChapterTitle(contentEl.window.document);
   const pageChapter = findDocumentChapterTitle(new JSDOM(html).window.document);
+
+  // Site furniture travels with the chapter container: author notes, share and
+  // comment strips. Removed here, before the content is cleaned or exported.
+  const stripped = stripSiteChrome(content);
+  if (stripped.removed > 0) {
+    console.log(`stripped ${stripped.removed} site chrome block(s) from content`);
+  }
+  content = stripped.html;
 
   return {
     title: title || "",
