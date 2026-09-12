@@ -151,6 +151,10 @@ export type Action = z.infer<typeof ActionSchema>;
 export const ProjectConfigSchema = z.object({
   outDir: z.string().max(512).nullish(),
   fontDecryptMap: z.record(z.string(), z.string()).nullish(),
+  // Which source chapters a whole-book import has already brought in, so a run
+  // can be resumed. Kept in the existing JSON config column: no migration, and
+  // it is project state rather than chapter state.
+  importedChapterIds: z.string().array().nullish(),
 });
 
 ///////////////////////////

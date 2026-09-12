@@ -222,7 +222,7 @@ Numbered, self-contained implementation plans; `plans/README.md` carries the sta
 When you finish work covered by a plan, update its status row and add a log entry; when execution
 diverges from the plan text, amend the plan to match.
 
-The plan set is complete as of 2026-09-12: 001–027 are all DONE. When new work is
+The plan set is complete as of 2026-09-12: 001–028 are all DONE. When new work is
 planned, add a numbered file and a status row here rather than reviving a finished
 one — several plans were marked done in the past while failing their own criteria,
 so re-check a DONE against the working tree before relying on it.

@@ -36,6 +36,7 @@ status here.
 | 025 | Finish the picker → save flow (stacked Radix dialogs) | P1 | S-M | 020 | DONE (verified 2026-09-12 — silent validation, not a dead dialog; see the plan's Resolution) |
 | 026 | Stop the EPUB exporter fetching arbitrary URLs | P2 | S | 005 | DONE (verified 2026-09-12 — reproduced a local-file read into the EPUB) |
 | 027 | Import the chapters a reader page loads while scrolling | P2 | M | 020, 021 | DONE (verified 2026-09-12 — 7 chapters from one URL, 13 through the UI) |
+| 028 | Import a whole book, resuming where it stopped | P2 | M | 027 | DONE (verified 2026-09-12 — 13 chapters in 20s, resume with no duplicates) |
 
 Status values: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED`, or `REJECTED`.
 `DONE (verified …)` means the done criteria were re-checked against the working
@@ -94,6 +95,26 @@ finished work — see the commit for the starvation measurement; plus the browse
 launch race, the out-of-policy font fetch, the silently swallowed scan failure,
 the reorder/NOT NULL race, the cross-project import stream, and two UI
 robustness fixes. `tests/queue-manager.test.ts` pins the queue contract.
+
+### 2026-09-12 — plan 028 executed (whole-book walk, recorded post hoc)
+
+Requested after 027: the operator pointed at a 2,367-chapter novel and wanted it
+imported, not one URL per chapter. The catalogue gives the ordered list, reader
+pages give the content, and a ledger of source chapter ids makes the run
+resumable (13 chapters in 20 s; resuming added the next 5 in 25 s, no
+duplicates).
+
+Two decisions carried the design. The catalogue is the authority and the book
+page only a signpost to it — taking the book page's own preview list first made a
+resumed run declare the book finished with 2,350 chapters missing. And chapters
+are tracked by source id rather than title, because the catalogue and the reader
+disagree on how a title is written.
+
+The ledger rides in the project's config JSON, so there is no migration and no
+generated type to hand-edit in a tree where kysely-codegen cannot run. Recorded
+limits: the task holds a browser slot for its whole run (429 for other browser
+work meanwhile), and the walk imports the catalogue's extras — author notes,
+parody chapters, status pages — exactly as the site lists them.
 
 ### 2026-09-12 — plan 027 executed (scroll-loaded chapters, recorded post hoc)
 

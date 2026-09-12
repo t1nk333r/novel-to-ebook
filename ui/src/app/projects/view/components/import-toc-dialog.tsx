@@ -151,9 +151,18 @@ export default function ImportTOCDialog() {
     const $ = cheerio.load(pageData.html);
     const res: { title: string; url: string; checked: boolean }[] = [];
 
+    // The row's anchor wraps the title and its age; text() glues them together,
+    // which makes a title like "Part 1/2" plus "7 years ago" read as
+    // "Part 1/27 years ago". Drop timestamp-only children first.
+    const TIMESTAMP_ONLY = /^(?:\d+\s*(?:years?|months?|weeks?|days?|hours?|minutes?|mins?|seconds?|secs?)\s+ago|just\s+now)$/i;
+
     $(linkSelector).each((_, el) => {
       const $el = $(el);
-      let title = cleanLinkTitle($el.text());
+      const $clone = $el.clone();
+      $clone.find("span, time, small, em, i").each((__, child) => {
+        if (TIMESTAMP_ONLY.test($(child).text().trim())) $(child).remove();
+      });
+      let title = cleanLinkTitle($clone.text());
       let url = $el.attr("href") || "";
 
       if (titleSelector.length > 0) {

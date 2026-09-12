@@ -10,6 +10,7 @@ import {
   queueImportChapters,
   reorderChapters,
   queueImportScrolledChapters,
+  queueImportBook,
 } from "./repository";
 import { streamSSE } from "hono/streaming";
 import { importQueue } from "./context";
@@ -256,6 +257,42 @@ router.post(
       selector,
       framePath,
       maxScrolls,
+    });
+
+    return c.var.res({ taskId: res.id });
+  },
+);
+
+// Import a whole book: catalogue list + reader pages, resumable by chapter id
+router.post(
+  "/import-book",
+  openApi({
+    tags: ["Projects"],
+    summary: "Import a whole book, resuming where it stopped",
+    request: {
+      param: z.object({ projectId: z.string() }),
+      json: z.object({
+        bookUrl: z.url(),
+        selector: contentSelectorList,
+        framePath: z.string().min(1).array().max(limits.frames).nullish(),
+        maxScrolls: z.number().int().min(1).max(limits.scrollLoads).optional(),
+        maxChapters: z.number().int().min(1).max(limits.importLinks).optional(),
+      }),
+    },
+    responses: { 200: z.object({ taskId: z.uuid() }) },
+  }),
+  async (c) => {
+    const { projectId } = c.req.valid("param");
+    const { bookUrl, selector, framePath, maxScrolls, maxChapters } =
+      c.req.valid("json");
+
+    const res = queueImportBook({
+      projectId,
+      bookUrl,
+      selector,
+      framePath,
+      maxScrolls,
+      maxChapters,
     });
 
     return c.var.res({ taskId: res.id });

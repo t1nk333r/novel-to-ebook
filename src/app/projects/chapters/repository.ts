@@ -3,6 +3,7 @@ import type { Kysely } from "kysely";
 import { sql } from "kysely";
 import {
   collectScrolledChapters,
+  getCleanHTML,
   getProjectConfig,
   stripSiteChrome,
   tryExtractContent,
@@ -17,6 +18,12 @@ import db from "../../../db";
 import type { DB } from "../../../db/types";
 import { cleanHTML, uuid, waitFor } from "../../../lib/utils";
 import { importQueue } from "./context";
+import {
+  cleanImportedTitle,
+  firstUnimportedIndex,
+  parseCatalogChapters,
+  type CatalogChapter,
+} from "../book-import";
 
 // Belt-and-suspenders retries on top of the (projectId,index) unique index:
 // the shared connection mutex already serializes every transaction in this
@@ -227,6 +234,184 @@ export function queueImportScrolledChapters(payload: {
     },
     { namespace: projectId },
   );
+}
+
+/**
+ * Import a whole book: the catalogue supplies the ordered chapter list, reader
+ * pages supply the content, and progress is recorded by source chapter id so a
+ * run resumes where it stopped.
+ *
+ * Each reader page renders several chapters (the site appends them as you
+ * scroll), so one page load usually completes a whole run of chapters and the
+ * walk simply jumps to the next entry the project is still missing.
+ */
+export function queueImportBook(payload: {
+  projectId: string;
+  bookUrl: string;
+  selector: string | string[];
+  framePath?: string[] | null;
+  maxScrolls?: number;
+  maxChapters?: number;
+}) {
+  const { projectId, bookUrl, selector, framePath, maxScrolls, maxChapters } =
+    payload;
+
+  return importQueue.add(
+    async (ctx) => {
+      let page: Page | null = null;
+      const releaseBrowser = await browserExecutor.acquire();
+
+      try {
+        await assertSafeOutboundUrl(bookUrl);
+        page = await newBrowserPage();
+        await page.setViewport({ width: 1280, height: 800 });
+
+        ctx.setProgress(2, "Reading the chapter list...");
+        const chapters = await readCatalog(page, bookUrl);
+
+        if (chapters.length === 0) {
+          throw new Error(
+            "No chapters found on that page — pass the book's catalogue URL, or the book page that links to it",
+          );
+        }
+
+        const importedIds = readImportedIds(await getProjectConfig(projectId));
+        let index = firstUnimportedIndex(chapters, importedIds);
+
+        if (index < 0) {
+          ctx.setProgress(100, "Already imported");
+          return;
+        }
+
+        let fontDecryptMap = await getProjectConfig(projectId).then(
+          (config) => config.fontDecryptMap ?? null,
+        );
+        let inserted = 0;
+        const limit = maxChapters ?? chapters.length;
+
+        while (index >= 0 && inserted < limit) {
+          const target = chapters[index] as CatalogChapter;
+          ctx.setProgress(
+            (index / chapters.length) * 100,
+            `Loading from ${target.title.slice(0, 40)}...`,
+          );
+
+          await page.goto(target.url, {
+            waitUntil: "networkidle2",
+            timeout: 30000,
+          });
+
+          const found = await collectScrolledChapters(page, selector, {
+            framePath,
+            maxScrolls,
+          });
+
+          // The page renders this chapter and the ones after it; match them back
+          // to the list by source id and keep the order the catalogue defines.
+          const byId = new Map(
+            found
+              .map((chapter) => [chapter.id, chapter] as const)
+              .filter((entry): entry is [string, (typeof found)[number]] =>
+                Boolean(entry[0]),
+              ),
+          );
+
+          if (byId.size === 0) {
+            throw new Error(
+              "None of the chapters on that page matched the selector — pick the content again",
+            );
+          }
+
+          for (const [id, chapter] of byId) {
+            if (importedIds.has(id)) continue;
+            if (inserted >= limit) break;
+
+            const cleaned = cleanHTML(stripSiteChrome(chapter.html).html);
+            if (!cleaned.trim()) continue;
+
+            let content = cleaned;
+            if (fontDecryptMap) {
+              content = FontDecryptor.fromMap(fontDecryptMap).decrypt(content);
+            }
+
+            const catalogEntry = chapters.find((entry) => entry.id === id);
+            await insertChapterAtNextIndex(projectId, {
+              title: cleanImportedTitle(chapter.title ?? catalogEntry?.title ?? "Untitled"),
+              content,
+            });
+
+            importedIds.add(id);
+            inserted++;
+          }
+
+          await updateProjectConfig(projectId, {
+            importedChapterIds: [...importedIds],
+          });
+
+          index = firstUnimportedIndex(chapters, importedIds);
+          ctx.setProgress(
+            (index < 0 ? 1 : index / chapters.length) * 100,
+            `${inserted} chapter(s) imported`,
+          );
+        }
+
+        ctx.setProgress(100, `Imported ${inserted} chapter(s)`);
+      } catch (err) {
+        console.error(err);
+        throw err;
+      } finally {
+        if (page) await page.close();
+        releaseBrowser();
+      }
+    },
+    { namespace: projectId },
+  );
+}
+
+/** The import ledger, validated: the config column is JSON written over time. */
+function readImportedIds(config: { importedChapterIds?: unknown }) {
+  const ids = config.importedChapterIds;
+
+  return new Set<string>(
+    Array.isArray(ids)
+      ? ids.filter((id): id is string => typeof id === "string")
+      : [],
+  );
+}
+
+/**
+ * The chapter list: the catalogue's, when there is one.
+ *
+ * The book page carries its own preview of chapters — a real bug came from
+ * taking those links: the preview is shorter than the novel, so a resumed run
+ * saw "everything imported" and stopped while 2,350 chapters were still
+ * missing. The catalogue is the authority, and the book page is only a signpost
+ * to it.
+ */
+async function readCatalog(page: Page, url: string) {
+  await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
+
+  const isCatalog = /\/catalog\/?$/i.test(new URL(url).pathname);
+  const catalogUrl = isCatalog ? url : await findCatalogLink(page);
+
+  if (catalogUrl && catalogUrl !== url) {
+    await page.goto(catalogUrl, { waitUntil: "networkidle2", timeout: 30000 });
+  }
+
+  const html = await page.evaluate(getCleanHTML);
+
+  return parseCatalogChapters(html, catalogUrl ?? url);
+}
+
+/** The book page links its catalogue; that link is the whole chapter list. */
+async function findCatalogLink(page: Page) {
+  return page.evaluate(() => {
+    const link = Array.from(document.querySelectorAll("a[href]")).find((a) =>
+      /\/catalog\/?$/i.test(a.getAttribute("href") ?? ""),
+    );
+
+    return link ? (link as HTMLAnchorElement).href : null;
+  });
 }
 
 export async function reorderChapters(projectId: string, ids: number[]) {

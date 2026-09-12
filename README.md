@@ -131,6 +131,18 @@ loads"** in the same dialog and the server opens the page, scrolls until it stop
 growing, and imports one chapter per match of the selector through the normal
 import queue (so progress shows in the project sidebar).
 
+**A whole book.** Add → **Whole book**, paste the book's URL, and give the content
+selector once (pick it from any chapter with Add → Link → Pick). The server reads
+the site's catalogue for the ordered chapter list, then loads reader pages and
+takes every chapter each one renders, skipping chapters it has already imported.
+
+That last part is what makes it practical: a 2,367-chapter novel imports in tens
+of minutes, stops cleanly, and **resumes** where it left off when you submit it
+again — progress is recorded per source chapter by id, not by title. Two caveats:
+the task holds the browser for its whole run, so other browser-driven requests are
+refused with 429 meanwhile, and the walk imports every entry the catalogue lists,
+including author notes and side chapters, exactly as the site presents them.
+
 Two things to know about that mode: a **selector is required** — each match
 becomes a chapter, and the site above uses one container per chapter — and the
 work is bounded by `MAX_SCROLL_LOADS` (default 12). Chapters taken this way are

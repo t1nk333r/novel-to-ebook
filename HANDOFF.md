@@ -14,7 +14,7 @@ remediation/plans-001-018   27de206   all work lives here
 
 | Gate | Result |
 |---|---|
-| `bun test` | 136 pass, 0 fail, 19 files |
+| `bun test` | 153 pass, 0 fail, 21 files |
 | `pnpm typecheck` | clean (server + UI) |
 | `pnpm lint` | 0 errors, 23 warnings |
 | `pnpm build` | `ui/dist/index.html` present |
@@ -94,6 +94,7 @@ git submodule update --init --recursive     # only if pnpm build fails
 | 025 | Picker → save flow | DONE — silent validation, not a dead dialog |
 | 026 | Exporter image URLs | DONE — was reading local files into the EPUB |
 | 027 | Scroll-loaded chapter import | DONE — one URL, every chapter the page loads |
+| 028 | Whole-book walk | DONE — catalogue list + reader pages, resumable |
 
 `plans/README.md` holds the full reconciliation log with per-plan evidence.
 
@@ -107,7 +108,7 @@ the live 429/200 evidence are in `plans/README.md`.
 
 ### Test suite
 
-10 tests across 3 files at session start; **136 across 19 files** now. Still thin
+10 tests across 3 files at session start; **153 across 21 files** now. Still thin
 relative to the surface, but every plan landed this session carries tests that fail
 when its fix is removed (checked by neutering the fix).
 Plans 003–014 named test targets (`auth`, `startup`, `rescan`, `font-attempts`)

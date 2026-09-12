@@ -1028,14 +1028,32 @@ export async function collectScrolledChapters(
       return best || insideText || null;
     };
 
+    // Site-specific but load-bearing: reader wrappers carry the chapter id
+    // (`j_chapter_31586142793028464`), which is how a chapter read here is
+    // matched against the catalogue entry for it. Handled here rather than
+    // server-side because the wrapper is an *ancestor* of the match, so it is
+    // not part of the returned HTML.
+    const ID_PATTERN = /(?:^|\s)j?_?chapter_(\d{6,})(?:\s|$)/;
+    const idFor = (el: Element) => {
+      let node: Element | null = el;
+      for (let depth = 0; node && depth < 6; depth++) {
+        const found = (node.getAttribute("class") ?? "").match(ID_PATTERN);
+        if (found?.[1]) return found[1];
+        node = node.parentElement;
+      }
+      return null;
+    };
+
     return matches.map((el) => ({
       title: titleFor(el),
+      id: idFor(el),
       html: el.outerHTML,
     }));
-  }, list)) as { title: string | null; html: string }[];
+  }, list)) as { title: string | null; id: string | null; html: string }[];
 
   return collected.map((chapter) => ({
     title: chapter.title,
+    id: chapter.id,
     html: chapter.html,
   }));
 }

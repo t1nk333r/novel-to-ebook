@@ -21,6 +21,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import {
   BookSearchIcon,
   ChevronLeftIcon,
+  LibraryIcon,
   LinkIcon,
   NotebookPenIcon,
   SquareDashedMousePointerIcon,
@@ -51,6 +52,11 @@ const schema = z.union([
     // Save button that did nothing.
     selector: z.union([z.string(), z.string().array()]).nullish(),
     framePath: z.string().array().nullish(),
+  }),
+  z.object({
+    type: z.literal("book"),
+    url: z.url().min(1),
+    selector: z.union([z.string(), z.string().array()]).nullish(),
   }),
   z.object({ type: z.null() }),
 ]);
@@ -97,6 +103,27 @@ export default function AddChapterModal() {
 
       if (values.type === "empty") {
         body.title = values.title;
+      }
+
+      if (values.type === "book") {
+        const selector = values.selector;
+
+        if (!selector || (Array.isArray(selector) && selector.length === 0)) {
+          toast.error("A content selector is required to import a whole book");
+          return;
+        }
+
+        await api.POST("/projects/{projectId}/chapters/import-book", {
+          params: { path: { projectId: project.id } },
+          body: { bookUrl: values.url!, selector },
+        });
+
+        toast.success("Importing the book — progress shows in the sidebar");
+        addChapterModal.setOpen(false);
+        form.reset({ type: null });
+        invalidateQuery("/projects/{projectId}/chapters");
+        setPending(false);
+        return;
       }
 
       if (values.type === "link") {
@@ -223,7 +250,7 @@ export default function AddChapterModal() {
         </DialogHeader>
 
         {!type ? (
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <Button
               variant="outline"
               className="flex-col h-24"
@@ -250,6 +277,14 @@ export default function AddChapterModal() {
             >
               <BookSearchIcon />
               Multi Link
+            </Button>
+            <Button
+              variant="outline"
+              className="flex-col h-24"
+              onClick={() => form.setValue("type", "book" as never)}
+            >
+              <LibraryIcon />
+              Whole book
             </Button>
           </div>
         ) : (
@@ -342,10 +377,50 @@ export default function AddChapterModal() {
               </div>
             )}
 
+            {type === "book" && (
+              <div className="space-y-3">
+                <Field>
+                  <FieldLabel>Book or catalogue URL</FieldLabel>
+                  <InputGroup>
+                    <InputGroupInput
+                      autoFocus
+                      placeholder="https://www.webnovel.com/book/..."
+                      value={urlValue ?? ""}
+                      onChange={(e) => form.setValue("url", e.target.value)}
+                    />
+                  </InputGroup>
+                </Field>
+
+                <Field>
+                  <FieldLabel>Chapter content selector</FieldLabel>
+                  <InputGroup>
+                    <InputGroupInput
+                      placeholder="e.g. div.cha-content"
+                      value={
+                        Array.isArray(selectorValue)
+                          ? selectorValue.join(", ")
+                          : (selectorValue ?? "")
+                      }
+                      onChange={(e) => form.setValue("selector", e.target.value)}
+                    />
+                  </InputGroup>
+                  <p className="text-muted-foreground text-xs">
+                    Pick it once from any chapter with Add → Link → Pick, then
+                    import the whole book here. The chapter list comes from the
+                    catalogue, so a run resumes where it stopped.
+                  </p>
+                </Field>
+              </div>
+            )}
+
             {type != null && (
               <DialogFooter className="mt-4">
                 <Button type="submit" disabled={isPending || create.isPending}>
-                  {importAll ? "Import all" : "Save"}
+                  {type === "book"
+                    ? "Import book"
+                    : importAll
+                      ? "Import all"
+                      : "Save"}
                 </Button>
               </DialogFooter>
             )}

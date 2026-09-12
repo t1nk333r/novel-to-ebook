@@ -331,6 +331,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{projectId}/chapters/import-book": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import a whole book, resuming where it stopped */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** Format: uri */
+                        bookUrl: string;
+                        selector: string | string[];
+                        framePath?: string[] | null;
+                        maxScrolls?: number;
+                        maxChapters?: number;
+                    };
+                };
+            };
+            responses: {
+                /** @description 200 OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: uuid */
+                            taskId: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects": {
         parameters: {
             query?: never;
@@ -365,6 +417,7 @@ export interface paths {
                                 fontDecryptMap?: {
                                     [key: string]: string;
                                 } | null;
+                                importedChapterIds?: string[] | null;
                             } | null;
                             language: string;
                             /** Format: date-time */
@@ -450,6 +503,7 @@ export interface paths {
                                 fontDecryptMap?: {
                                     [key: string]: string;
                                 } | null;
+                                importedChapterIds?: string[] | null;
                             } | null;
                             language: string;
                             /** Format: date-time */
@@ -482,6 +536,7 @@ export interface paths {
                             fontDecryptMap?: {
                                 [key: string]: string;
                             } | null;
+                            importedChapterIds?: string[] | null;
                         } | null;
                         language?: string;
                     };
@@ -505,6 +560,7 @@ export interface paths {
                                 fontDecryptMap?: {
                                     [key: string]: string;
                                 } | null;
+                                importedChapterIds?: string[] | null;
                             } | null;
                             language: string;
                             /** Format: date-time */
