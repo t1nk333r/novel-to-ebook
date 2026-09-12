@@ -25,6 +25,11 @@ import {
   type CatalogChapter,
 } from "../book-import";
 
+// A walk that keeps failing is a wrong selector or a site that has started
+// refusing us; five in a row is enough to stop and say so rather than grind
+// through two thousand dead pages.
+const MAX_CONSECUTIVE_WALK_FAILURES = 5;
+
 // Belt-and-suspenders retries on top of the (projectId,index) unique index:
 // the shared connection mutex already serializes every transaction in this
 // process, so a genuine race here should be extremely rare, but we still
@@ -289,6 +294,27 @@ export function queueImportBook(payload: {
         let inserted = 0;
         const limit = maxChapters ?? chapters.length;
 
+        // Pages that failed this run: skipped, not marked imported, so a later
+        // run picks them up. Without this a single transient network error ended
+        // a two-hour walk — one `net::ERR_NETWORK_CHANGED` cost 1,273 chapters.
+        const skipped = new Set<string>();
+        const done = () => new Set([...importedIds, ...skipped]);
+        let consecutiveFailures = 0;
+
+        const abandon = (chapter: CatalogChapter, reason: string) => {
+          skipped.add(chapter.id);
+          consecutiveFailures++;
+          console.warn(`walk: skipping "${chapter.title.slice(0, 60)}" — ${reason}`);
+
+          if (consecutiveFailures >= MAX_CONSECUTIVE_WALK_FAILURES) {
+            throw new Error(
+              `Stopped after ${consecutiveFailures} pages failed in a row (last: ${reason}). Submit again to resume from here.`,
+            );
+          }
+
+          index = firstUnimportedIndex(chapters, done());
+        };
+
         while (index >= 0 && inserted < limit) {
           const target = chapters[index] as CatalogChapter;
           ctx.setProgress(
@@ -296,15 +322,21 @@ export function queueImportBook(payload: {
             `Loading from ${target.title.slice(0, 40)}...`,
           );
 
-          await page.goto(target.url, {
-            waitUntil: "networkidle2",
-            timeout: 30000,
-          });
+          let found: Awaited<ReturnType<typeof collectScrolledChapters>>;
 
-          const found = await collectScrolledChapters(page, selector, {
-            framePath,
-            maxScrolls,
-          });
+          try {
+            await page.goto(target.url, {
+              waitUntil: "networkidle2",
+              timeout: 30000,
+            });
+            found = await collectScrolledChapters(page, selector, {
+              framePath,
+              maxScrolls,
+            });
+          } catch (err) {
+            abandon(target, err instanceof Error ? err.message : String(err));
+            continue;
+          }
 
           // The page renders this chapter and the ones after it; match them back
           // to the list by source id and keep the order the catalogue defines.
@@ -317,10 +349,11 @@ export function queueImportBook(payload: {
           );
 
           if (byId.size === 0) {
-            throw new Error(
-              "None of the chapters on that page matched the selector — pick the content again",
-            );
+            abandon(target, "nothing on the page matched the selector");
+            continue;
           }
+
+          consecutiveFailures = 0;
 
           for (const [id, chapter] of byId) {
             if (importedIds.has(id)) continue;
@@ -348,14 +381,17 @@ export function queueImportBook(payload: {
             importedChapterIds: [...importedIds],
           });
 
-          index = firstUnimportedIndex(chapters, importedIds);
+          index = firstUnimportedIndex(chapters, done());
           ctx.setProgress(
             (index < 0 ? 1 : index / chapters.length) * 100,
-            `${inserted} chapter(s) imported`,
+            `${inserted} imported${skipped.size ? `, ${skipped.size} skipped` : ""}`,
           );
         }
 
-        ctx.setProgress(100, `Imported ${inserted} chapter(s)`);
+        ctx.setProgress(
+          100,
+          `Imported ${inserted} chapter(s)${skipped.size ? `, skipped ${skipped.size} — submit again to retry them` : ""}`,
+        );
       } catch (err) {
         console.error(err);
         throw err;
