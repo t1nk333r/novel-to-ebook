@@ -1,11 +1,33 @@
 import removeMd from "remove-markdown";
 import { z } from "zod";
 import { SelectorSchema, selectorExample } from "../app/projects/schema";
+import { aiExecutor } from "./bounded-executor";
 import { limits } from "./limits";
 
-export type AiProvider = "ollama" | "gemini" | "none";
+export type AiProvider = "ollama" | "gemini" | "mistral" | "none";
 
 export const DEFAULT_OLLAMA_MODEL = "qwen2.5-coder:7b";
+export const DEFAULT_MISTRAL_MODEL = "mistral-large-latest";
+
+/** Every provider, in the order `AI_PROVIDER=auto` prefers them. */
+const PROVIDER_ORDER = ["ollama", "gemini", "mistral"] as const;
+
+/** The setting that turns each provider on; named in errors so the fix is obvious. */
+const PROVIDER_SETTING: Record<(typeof PROVIDER_ORDER)[number], string> = {
+  ollama: "OLLAMA_URL",
+  gemini: "GEMINI_API_KEY",
+  mistral: "MISTRAL_API_KEY",
+};
+
+/** Shown wherever a request needs a model and none is configured. */
+export const NO_AI_PROVIDER_MESSAGE =
+  "No AI provider configured: set OLLAMA_URL for a local model, or MISTRAL_API_KEY or GEMINI_API_KEY for a hosted model";
+
+type Resolved =
+  | { provider: "ollama"; ollamaUrl: URL; ollamaModel: string }
+  | { provider: "gemini" }
+  | { provider: "mistral"; mistralKey: string; mistralModel: string }
+  | { provider: "none" };
 
 /**
  * Which backend generates selectors, and where it lives.
@@ -16,17 +38,51 @@ export const DEFAULT_OLLAMA_MODEL = "qwen2.5-coder:7b";
  * Storvi at their own machine is exactly the case it would refuse — Docker's
  * `host-gateway` and a local daemon both land in private ranges. Loosening the
  * policy to accommodate this would punch a hole in it for scraped URLs too, so
- * the scheme and credential checks live here instead.
+ * the scheme and credential checks live here instead. The hosted backends have
+ * the same standing: their URLs are compiled in, never taken from a page.
+ *
+ * `AI_PROVIDER` forces one (`ollama`, `gemini`, `mistral`), which matters because
+ * `docker-compose.yml` sets `OLLAMA_URL` for the whole stack: on a host where
+ * that sidecar cannot run, auto-detection would keep choosing a dead endpoint.
  */
-export function resolveAiProvider(env: Record<string, string | undefined> = process.env) {
-  const rawUrl = env.OLLAMA_URL?.trim();
-  const model = env.OLLAMA_MODEL?.trim() || DEFAULT_OLLAMA_MODEL;
+export function resolveAiProvider(
+  env: Record<string, string | undefined> = process.env,
+): Resolved {
+  const requested = env.AI_PROVIDER?.trim().toLowerCase() || "auto";
 
-  if (!rawUrl) {
-    return env.GEMINI_API_KEY?.trim()
-      ? ({ provider: "gemini" } as const)
-      : ({ provider: "none" } as const);
+  if (requested !== "auto" && !PROVIDER_ORDER.includes(requested as "ollama")) {
+    throw new Error(
+      `AI_PROVIDER must be auto, ${PROVIDER_ORDER.join(", ")} — got "${requested}"`,
+    );
   }
+
+  const candidates: Resolved[] = [
+    resolveOllama(env),
+    env.GEMINI_API_KEY?.trim() ? { provider: "gemini" } as const : { provider: "none" } as const,
+    resolveMistral(env),
+  ];
+
+  if (requested === "auto") {
+    return (
+      candidates.find((candidate) => candidate.provider !== "none") ?? {
+        provider: "none",
+      }
+    );
+  }
+
+  const picked = candidates.find((candidate) => candidate.provider === requested);
+  if (!picked) {
+    throw new Error(
+      `AI_PROVIDER=${requested} needs ${PROVIDER_SETTING[requested as "ollama"]}`,
+    );
+  }
+
+  return picked;
+}
+
+function resolveOllama(env: Record<string, string | undefined>): Resolved {
+  const rawUrl = env.OLLAMA_URL?.trim();
+  if (!rawUrl) return { provider: "none" };
 
   let url: URL;
   try {
@@ -43,7 +99,22 @@ export function resolveAiProvider(env: Record<string, string | undefined> = proc
     throw new Error("OLLAMA_URL must not carry credentials in the URL");
   }
 
-  return { provider: "ollama", ollamaUrl: url, ollamaModel: model } as const;
+  return {
+    provider: "ollama",
+    ollamaUrl: url,
+    ollamaModel: env.OLLAMA_MODEL?.trim() || DEFAULT_OLLAMA_MODEL,
+  };
+}
+
+function resolveMistral(env: Record<string, string | undefined>): Resolved {
+  const mistralKey = env.MISTRAL_API_KEY?.trim();
+  if (!mistralKey) return { provider: "none" };
+
+  return {
+    provider: "mistral",
+    mistralKey,
+    mistralModel: env.MISTRAL_MODEL?.trim() || DEFAULT_MISTRAL_MODEL,
+  };
 }
 
 /**
@@ -148,4 +219,70 @@ export async function generateSelectorsWithOllama(
   const result = ollamaQueue.then(run, run);
   ollamaQueue = result.catch(() => undefined);
   return result;
+}
+
+/** Compiled in, never taken from a page — the same standing as OLLAMA_URL. */
+const MISTRAL_CHAT_URL = "https://api.mistral.ai/v1/chat/completions";
+
+/**
+ * Selector generation on Mistral's chat completions API.
+ *
+ * No local queue here: nothing shared is being contended for, so concurrency is
+ * whichever bound the shared AI executor already applies.
+ *
+ * `response_format: json_object` is Mistral's JSON mode — it guarantees an
+ * object without constraining *which* keys, and it requires the word "json" to
+ * appear in the prompt, which `buildSelectorMessages` already ends with. The
+ * shape itself is pinned by `SelectorSchema.parse` at the call site, and the
+ * prompt carries an example of it.
+ */
+export async function generateSelectorsWithMistral(
+  skeleton: string,
+  followUp: string | undefined,
+  config: { apiKey: string; model: string },
+) {
+  const startedAt = Date.now();
+  const messages = buildSelectorMessages(skeleton, followUp).map(({ role, text }) => ({
+    role,
+    content: text,
+  }));
+
+  const response = await aiExecutor.run(() =>
+    fetch(MISTRAL_CHAT_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: config.model,
+        messages,
+        response_format: { type: "json_object" },
+        stream: false,
+      }),
+      signal: AbortSignal.timeout(limits.aiRequestTimeoutMs),
+    }),
+  );
+
+  if (!response.ok) {
+    // Status and model only: an error body can echo page content, and a
+    // rejected key must not appear in a log line.
+    throw new Error(
+      `Mistral request failed with ${response.status} from model ${config.model}`,
+    );
+  }
+
+  const payload = (await response.json()) as {
+    choices?: { message?: { content?: string } }[];
+  };
+  const content = payload?.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error(`Mistral returned no message content from ${config.model}`);
+  }
+
+  console.log(
+    `selector generation via mistral/${config.model} took ${Date.now() - startedAt}ms`,
+  );
+
+  return JSON.parse(removeMd(content));
 }

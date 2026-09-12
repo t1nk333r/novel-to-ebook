@@ -4,7 +4,9 @@ import { SelectorSchema } from "../app/projects/schema";
 import removeMd from "remove-markdown";
 import {
   buildSelectorMessages,
+  generateSelectorsWithMistral,
   generateSelectorsWithOllama,
+  NO_AI_PROVIDER_MESSAGE,
   resolveAiProvider,
 } from "./ai-provider";
 import { aiExecutor } from "./bounded-executor";
@@ -33,12 +35,15 @@ export async function generateSelectors(html: string, followUp?: string) {
       url: config.ollamaUrl,
       model: config.ollamaModel,
     });
+  } else if (config.provider === "mistral") {
+    generated = await generateSelectorsWithMistral(html, followUp, {
+      apiKey: config.mistralKey,
+      model: config.mistralModel,
+    });
   } else if (config.provider === "gemini") {
     generated = await generateSelectorsWithGemini(html, followUp);
   } else {
-    throw new Error(
-      "No AI provider configured: set OLLAMA_URL for a local model or GEMINI_API_KEY for Gemini",
-    );
+    throw new Error(NO_AI_PROVIDER_MESSAGE);
   }
 
   return SelectorSchema.parse(generated);

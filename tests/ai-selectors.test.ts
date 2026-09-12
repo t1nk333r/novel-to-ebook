@@ -2,6 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
 import {
   buildSelectorMessages,
+  DEFAULT_MISTRAL_MODEL,
+  generateSelectorsWithMistral,
   generateSelectorsWithOllama,
   resolveAiProvider,
   selectorJsonSchema,
@@ -354,5 +356,134 @@ describe("prompt construction", () => {
     expect(first?.text).toContain("<div>«7»</div>");
     expect(first?.text).toContain("placeholders");
     expect(z.string().safeParse(first?.text).success).toBe(true);
+  });
+});
+
+describe("resolveAiProvider with Mistral", () => {
+  test("a Mistral key is used when nothing else is configured", () => {
+    const resolved = resolveAiProvider({ MISTRAL_API_KEY: "key" });
+
+    expect(resolved.provider).toBe("mistral");
+    expect(resolved.provider === "mistral" && resolved.mistralModel).toBe(
+      DEFAULT_MISTRAL_MODEL,
+    );
+  });
+
+  test("keeps the documented order: local, then Gemini, then Mistral", () => {
+    const both = resolveAiProvider({ GEMINI_API_KEY: "g", MISTRAL_API_KEY: "m" });
+    expect(both.provider).toBe("gemini");
+
+    const all = resolveAiProvider({
+      OLLAMA_URL: "http://127.0.0.1:11435",
+      GEMINI_API_KEY: "g",
+      MISTRAL_API_KEY: "m",
+    });
+    expect(all.provider).toBe("ollama");
+  });
+
+  test("AI_PROVIDER overrides detection, which is what fixes a dead sidecar", () => {
+    // docker-compose.yml sets OLLAMA_URL for the whole stack, so auto-detection
+    // picks Ollama even where that container cannot run. Forcing the provider is
+    // the way out.
+    const forced = resolveAiProvider({
+      OLLAMA_URL: "http://ollama:11434",
+      MISTRAL_API_KEY: "m",
+      AI_PROVIDER: "mistral",
+    });
+
+    expect(forced.provider).toBe("mistral");
+  });
+
+  test("a forced provider that cannot be honoured says which setting is missing", () => {
+    expect(() => resolveAiProvider({ AI_PROVIDER: "mistral" })).toThrow(
+      /MISTRAL_API_KEY/,
+    );
+    expect(() => resolveAiProvider({ AI_PROVIDER: "gemini" })).toThrow(
+      /GEMINI_API_KEY/,
+    );
+    expect(() => resolveAiProvider({ AI_PROVIDER: "ollama" })).toThrow(
+      /OLLAMA_URL/,
+    );
+    expect(() => resolveAiProvider({ AI_PROVIDER: "gpt" })).toThrow(
+      /AI_PROVIDER/,
+    );
+  });
+
+  test("the model is overridable and defaults otherwise", () => {
+    const override = resolveAiProvider({
+      MISTRAL_API_KEY: "m",
+      MISTRAL_MODEL: "mistral-small-latest",
+    });
+
+    expect(override.provider === "mistral" && override.mistralModel).toBe(
+      "mistral-small-latest",
+    );
+  });
+});
+
+describe("generateSelectorsWithMistral", () => {
+  const config = { apiKey: "test-key", model: "test-model" };
+
+  test("posts to chat completions in JSON mode with the key as a bearer", async () => {
+    const calls = stubFetch(() =>
+      jsonResponse({ choices: [{ message: { content: JSON.stringify(VALID_REPLY) } }] }),
+    );
+
+    const result = await generateSelectorsWithMistral(
+      "<div>«10»</div>",
+      undefined,
+      config,
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe("https://api.mistral.ai/v1/chat/completions");
+    expect(calls[0]?.body.model).toBe("test-model");
+    expect(calls[0]?.body.stream).toBe(false);
+    expect(calls[0]?.body.response_format).toEqual({ type: "json_object" });
+    expect(SelectorSchema.parse(result).title).toBe("h1.title");
+  });
+
+  test("sends the skeleton and the follow-up, never the raw page", async () => {
+    const calls = stubFetch(() =>
+      jsonResponse({ choices: [{ message: { content: JSON.stringify(VALID_REPLY) } }] }),
+    );
+
+    await generateSelectorsWithMistral("<p>«42»</p>", "try harder", config);
+
+    const messages = calls[0]?.body.messages as { content: string }[];
+    expect(messages).toHaveLength(2);
+    expect(messages[0]?.content).toContain("<p>«42»</p>");
+    expect(messages[1]?.content).toBe("try harder");
+  });
+
+  test("a rejected key is reported by status and model, never echoed", async () => {
+    stubFetch(
+      () => new Response('{"message":"Unauthorized"}', { status: 401 }),
+    );
+
+    const error = (await generateSelectorsWithMistral("x", undefined, config).catch(
+      (err: Error) => err,
+    )) as Error;
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toContain("401");
+    expect(error.message).toContain("test-model");
+    expect(error.message).not.toContain("test-key");
+  });
+
+  test("a malformed reply is a clear error, not a crash", async () => {
+    stubFetch(() => jsonResponse({ choices: [{ message: { content: "not json" } }] }));
+
+    await expect(
+      generateSelectorsWithMistral("x", undefined, config),
+    ).rejects.toThrow();
+  });
+
+  test("an empty reply is rejected", async () => {
+    stubFetch(() => jsonResponse({ choices: [] }));
+
+    await expect(
+      generateSelectorsWithMistral("x", undefined, config),
+    ).rejects.toThrow(/no message content/i);
   });
 });

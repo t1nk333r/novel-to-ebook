@@ -39,6 +39,7 @@ status here.
 | 028 | Import a whole book, resuming where it stopped | P2 | M | 027 | DONE (verified 2026-09-12 — 13 chapters in 20s, resume with no duplicates) |
 | 029 | Companion browser extension | P2 | M | 023, 027, 028 | DONE (verified 2026-09-12 — real page captured with no server browser) |
 | 030 | A chrome match must never delete the content block | P1 | S | 019, 029 | DONE (2026-09-12 — `para-comment-allowed` deleted whole chapters) |
+| 031 | Mistral as a selector-generation backend | P3 | S | 022 | DONE (2026-09-13 — `AI_PROVIDER` makes a host without the ollama sidecar usable) |
 
 Status values: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED`, or `REJECTED`.
 `DONE (verified …)` means the done criteria were re-checked against the working
@@ -97,6 +98,22 @@ finished work — see the commit for the starvation measurement; plus the browse
 launch race, the out-of-policy font fetch, the silently swallowed scan failure,
 the reorder/NOT NULL race, the cross-project import stream, and two UI
 robustness fixes. `tests/queue-manager.test.ts` pins the queue contract.
+
+### 2026-09-13 — plan 031 (Mistral backend for selector generation)
+
+Plan 022 left selector generation with a local backend and Gemini; on this host
+the `ollama` sidecar cannot run (its compose entry pins an NVIDIA runtime on an
+AMD machine) while `OLLAMA_URL` is set for the whole stack, so auto-detection
+picked a dead endpoint and every generation failed. Mistral is added as a third
+backend, and `AI_PROVIDER` forces one — that override is the load-bearing part,
+because the compose default means detection alone cannot express "not on this
+host".
+
+Order stays local-first (`ollama → gemini → mistral`) with the override for
+everything else. The Mistral call is deliberately not routed through the local
+inference queue (nothing shared to serialize) and reports failures by status and
+model only, so a rejected key cannot reach a log. 11 tests cover the request
+shape, the key-never-echoed rule, and the resolution matrix.
 
 ### 2026-09-12 — plan 030 (chrome match deleting the content block)
 

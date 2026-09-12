@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { generateSelectors, translate, uuid, waitFor } from "../../lib/utils";
-import { resolveAiProvider } from "../../lib/ai-provider";
+import { NO_AI_PROVIDER_MESSAGE, resolveAiProvider } from "../../lib/ai-provider";
 import {
   ActionSchema,
   contentSelectorList,
@@ -524,10 +524,10 @@ router.post(
 
     const provider = resolveAiProvider();
     if (provider.provider === "none") {
-      throw new HTTPError(
-        "No AI provider configured: set OLLAMA_URL for a local model or GEMINI_API_KEY for Gemini",
-        { status: 503, code: "AI_PROVIDER_UNAVAILABLE" },
-      );
+      throw new HTTPError(NO_AI_PROVIDER_MESSAGE, {
+        status: 503,
+        code: "AI_PROVIDER_UNAVAILABLE",
+      });
     }
 
     const selectors = await generateSelectors(

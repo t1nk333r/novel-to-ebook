@@ -39,6 +39,13 @@ services:
       # this unset disables local AI (Gemini is then used if its key is set).
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5-coder:7b}
+      # Hosted backend, useful where this stack's `ollama` service cannot run
+      # (it needs an NVIDIA runtime). With a key set:
+      #   AI_PROVIDER=mistral docker compose up -d --no-deps storvi
+      # because the OLLAMA_URL default above would otherwise win auto-detection.
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+      MISTRAL_MODEL: ${MISTRAL_MODEL:-}
+      AI_PROVIDER: ${AI_PROVIDER:-}
 
     volumes:
       # Your EPUB/PDF library. Read-write: exports are written back here.
