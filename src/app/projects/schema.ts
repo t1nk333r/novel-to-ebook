@@ -36,6 +36,31 @@ export const SelectorSchema = z.object({
 
 export type Selector = z.infer<typeof SelectorSchema>;
 
+/**
+ * The wire shape of a generated selector — what `SelectorSchema` normalizes to.
+ *
+ * The route cannot declare `SelectorSchema` as an OpenAPI *response*: its
+ * `content` field carries a transform (normalizing one selector or several into
+ * a list), and the document generator refuses transforms in output schemas,
+ * which crashed the server at startup. This mirrors the parsed result instead,
+ * so the wire contract stays explicit. `tests/ai-selectors.test.ts` asserts the
+ * two agree, so they cannot drift unnoticed.
+ */
+export const SelectorResponseSchema = z.object({
+  title: z.string(),
+  chapter: z.string().nullish(),
+  isChapterInTitle: z.boolean().nullish(),
+  titleSeparator: z.string().nullish(),
+  content: z.string().array(),
+  framePath: z.string().array().optional(),
+  urls: z
+    .object({
+      nextChapter: z.string().nullish(),
+      prevChapter: z.string().nullish(),
+    })
+    .nullish(),
+});
+
 export const selectorExample: Selector = {
   title: "h1.title",
   chapter: "h2.chapter",

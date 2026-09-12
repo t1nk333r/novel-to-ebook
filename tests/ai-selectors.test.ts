@@ -7,7 +7,15 @@ import {
   selectorJsonSchema,
 } from "../src/lib/ai-provider";
 import { htmlSkeleton } from "../src/app/projects/utils";
-import { SelectorSchema } from "../src/app/projects/schema";
+import {
+  CreateProjectResSchema,
+  ExtractResponseSchema,
+  ProjectConfigSchema,
+  ProjectSchema,
+  SelectorResponseSchema,
+  SelectorSchema,
+  TranslateResponseSchema,
+} from "../src/app/projects/schema";
 
 /**
  * Plan 022: selector generation against a local Ollama instance.
@@ -120,6 +128,23 @@ describe("selectorJsonSchema", () => {
     expect(SelectorSchema.parse(VALID_REPLY).content).toEqual([
       "div.reading-content",
     ]);
+  });
+
+  test("the route's response schema matches what SelectorSchema produces", () => {
+    // The route cannot declare SelectorSchema as a response (its transform is
+    // not representable and crashed the server at startup), so the wire shape is
+    // written out; this keeps the two from drifting.
+    for (const reply of [
+      VALID_REPLY,
+      { title: "h1", content: ["div.a", "div.b"] },
+      { title: "h1", content: "p", framePath: ["iframe:nth-of-type(1)"], urls: { nextChapter: "a.next" } },
+      { title: "h1", content: "p", chapter: "h2", isChapterInTitle: true, titleSeparator: "-" },
+    ]) {
+      const parsed = SelectorSchema.parse(reply);
+      const result = SelectorResponseSchema.safeParse(parsed);
+
+      expect(result.success).toBe(true);
+    }
   });
 });
 
@@ -288,6 +313,37 @@ describe("local inference serialization", () => {
     await expect(
       generateSelectorsWithOllama("b", undefined, config),
     ).resolves.toBeDefined();
+  });
+});
+
+describe("OpenAPI response schemas stay representable", () => {
+  // The docs route builds every response schema when it loads, so a schema the
+  // generator cannot represent stops the server from starting — which is how
+  // SelectorSchema broke the boot. These are the shapes routes actually declare.
+  const responseSchemas = {
+    SelectorResponseSchema,
+    ProjectSchema,
+    CreateProjectResSchema,
+    TranslateResponseSchema,
+    ExtractResponseSchema,
+    ProjectConfigSchema,
+  };
+
+  test("every response schema generates JSON Schema on the output side", () => {
+    for (const [name, schema] of Object.entries(responseSchemas)) {
+      expect(
+        () => z.toJSONSchema(schema, { io: "output" }),
+        `${name} must be representable as an OpenAPI response`,
+      ).not.toThrow();
+    }
+  });
+
+  test("SelectorSchema is not representable, which is why the response schema exists", () => {
+    // Documents the constraint rather than leaving it to a future reader: this
+    // throw is what crashed startup when the route declared SelectorSchema.
+    expect(() => z.toJSONSchema(SelectorSchema, { io: "output" })).toThrow(
+      /transform/i,
+    );
   });
 });
 

@@ -9,7 +9,7 @@ import {
   CreateProjectResSchema,
   GenerateSelectorsRequestSchema,
   ProjectSchema,
-  SelectorSchema,
+  SelectorResponseSchema,
   SnapshotRequestSchema,
   TranslateRequestSchema,
   TranslateResponseSchema,
@@ -508,7 +508,7 @@ router.post(
       json: GenerateSelectorsRequestSchema,
     },
     responses: {
-      200: SelectorSchema,
+      200: SelectorResponseSchema,
       503: z.object({ error: z.boolean(), message: z.string() }),
     },
   }),
