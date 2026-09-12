@@ -375,6 +375,13 @@ router.post(
           pageSize.height = Math.min(fullPageSize.height, pageSize.height, 2400);
 
           if (fullPage) {
+            // Deliberately back to the top, and no scrolling anywhere in this
+            // route: reader sites append the following chapters as you scroll
+            // (Webnovel loads six more into the same `.cha-content`/`.cha-words`
+            // classes, taking the page from 4k to 42k pixels). Scrolling before
+            // collection would put those chapters into the element tree, offer
+            // them to the picker on a screenshot that does not contain them, and
+            // let a content selector match every chapter at once.
             await page.evaluate(() => window.scrollTo(0, 0));
             pageSize.height = Math.min(fullPageSize.height, limits.viewportDimension);
           }
