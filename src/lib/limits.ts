@@ -28,6 +28,7 @@ export const limits = {
   aiConcurrency: readPositiveInteger("MAX_AI_CONCURRENCY", 2),
   scanConcurrency: readPositiveInteger("MAX_SCAN_CONCURRENCY", 4),
   frames: readPositiveInteger("MAX_FRAMES", 8),
+  scrollLoads: readPositiveInteger("MAX_SCROLL_LOADS", 12),
   // Deliberately generous: on a GPU shared with other work the model may have
   // been unloaded and has to be read back from disk on the first request.
   aiRequestTimeoutMs: readPositiveInteger("AI_REQUEST_TIMEOUT_MS", 120_000),

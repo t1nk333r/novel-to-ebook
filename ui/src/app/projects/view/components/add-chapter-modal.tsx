@@ -7,6 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldLabel } from "@/components/ui/field";
 import {
   InputGroup,
@@ -67,6 +68,8 @@ export default function AddChapterModal() {
   const selectorValue = useWatch({ control: form.control, name: "selector" });
   const urlValue = useWatch({ control: form.control, name: "url" });
   const [isPending, setPending] = useState(false);
+  // Off by default: importing every chapter a page loads is a deliberate choice.
+  const [importAll, setImportAll] = useState(false);
 
   const create = $api.useMutation("post", "/projects/{projectId}/chapters", {
     onSuccess(data) {
@@ -97,6 +100,40 @@ export default function AddChapterModal() {
       }
 
       if (values.type === "link") {
+        // A reader page that appends chapters as it is scrolled: one request
+        // imports every chapter the page will load, through the same queue the
+        // link importer uses, so the existing progress panel shows it.
+        if (importAll) {
+          const selector = values.selector;
+
+          if (!selector || (Array.isArray(selector) && selector.length === 0)) {
+            toast.error(
+              "Pick or type a content selector — each match becomes a chapter",
+            );
+            return;
+          }
+
+          const { data } = await api.POST(
+            "/projects/{projectId}/chapters/import-scroll",
+            {
+              params: { path: { projectId: project.id } },
+              body: {
+                url: values.url!,
+                selector,
+                framePath: values.framePath,
+              },
+            },
+          );
+
+          toast.success("Importing the chapters this page loads…");
+          addChapterModal.setOpen(false);
+          form.reset({ type: null });
+          invalidateQuery("/projects/{projectId}/chapters");
+          setPending(false);
+          void data;
+          return;
+        }
+
         const { data } = await api.POST("/projects/extract", {
           body: {
             projectId: project.id,
@@ -287,13 +324,28 @@ export default function AddChapterModal() {
                     </InputGroupAddon>
                   </InputGroup>
                 </Field>
+
+                <label className="flex items-start gap-2 text-sm">
+                  <Checkbox
+                    checked={importAll}
+                    onCheckedChange={(checked) => setImportAll(!!checked)}
+                  />
+                  <span>
+                    Import every chapter this page loads
+                    <span className="text-muted-foreground block text-xs">
+                      For readers that append the next chapters as you scroll.
+                      Each match of the selector becomes one chapter, so a
+                      selector is required.
+                    </span>
+                  </span>
+                </label>
               </div>
             )}
 
             {type != null && (
               <DialogFooter className="mt-4">
                 <Button type="submit" disabled={isPending || create.isPending}>
-                  Save
+                  {importAll ? "Import all" : "Save"}
                 </Button>
               </DialogFooter>
             )}

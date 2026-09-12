@@ -1,6 +1,6 @@
 import { Page, type Frame } from "puppeteer";
 import * as cheerio from "cheerio";
-import { cleanHTML } from "../../lib/utils";
+import { cleanHTML, waitFor } from "../../lib/utils";
 import fs from "fs/promises";
 import path from "path";
 import { assertSafeOutboundUrl, readResponseBytes, safeFetch } from "../../lib/network-policy";
@@ -950,6 +950,94 @@ export function stripSiteChrome(html: string) {
   });
 
   return { html: $.html(), removed };
+}
+
+/**
+ * Read a reader page that appends the following chapters as the reader scrolls
+ * (Webnovel loads six more into the same classes, taking the page from 4k to
+ * 42k pixels).
+ *
+ * Each match of the caller's selector becomes one chapter. The title comes from
+ * the nearest heading *before* that match in document order, because that is
+ * where these sites put it — the match itself usually starts with the chapter
+ * prose (`div.cha-words`) or with publisher furniture.
+ *
+ * Scrolling is bounded by `limits.scrollLoads` and stops as soon as the page
+ * stops growing, so a page without lazy loading costs one extra measurement.
+ */
+export async function collectScrolledChapters(
+  page: Page,
+  selectors: string | string[],
+  options: { framePath?: FramePath | null; maxScrolls?: number } = {},
+) {
+  const list = (Array.isArray(selectors) ? selectors : [selectors]).filter(
+    (selector) => selector.trim().length > 0,
+  );
+  if (list.length === 0) return [];
+
+  // Content can live in a frame; scrolling and reading happen there.
+  const frame = await resolveFrame(page, options.framePath);
+  const maxScrolls = options.maxScrolls ?? limits.scrollLoads;
+
+  let previousHeight = 0;
+  let scrolls = 0;
+
+  for (; scrolls < maxScrolls; scrolls++) {
+    const height = await frame.evaluate(
+      () => document.documentElement.scrollHeight,
+    );
+    if (height <= previousHeight) break;
+    previousHeight = height;
+
+    await frame.evaluate(() =>
+      window.scrollTo(0, document.documentElement.scrollHeight),
+    );
+    // Give the site time to fetch and render what it just fetched.
+    await waitFor(900);
+  }
+
+  const collected = (await frame.evaluate((selectorList: string[]) => {
+    const headings = Array.from(
+      document.querySelectorAll("h1, h2, h3"),
+    ).filter((el) => (el.textContent ?? "").trim().length > 0);
+
+    const seen = new Set<Element>();
+    const matches: Element[] = [];
+    for (const selector of selectorList) {
+      document.querySelectorAll(selector).forEach((el) => {
+        if (!seen.has(el)) {
+          seen.add(el);
+          matches.push(el);
+        }
+      });
+    }
+
+    const titleFor = (el: Element) => {
+      // Nearest heading before this element, or one inside it.
+      let best: string | null = null;
+      for (const heading of headings) {
+        const position = el.compareDocumentPosition(heading);
+        if (position & Node.DOCUMENT_POSITION_PRECEDING) {
+          best = (heading.textContent ?? "").replace(/\s+/g, " ").trim();
+        } else if (position & Node.DOCUMENT_POSITION_CONTAINED_BY) {
+          break;
+        }
+      }
+      const inside = el.querySelector("h1, h2, h3");
+      const insideText = (inside?.textContent ?? "").replace(/\s+/g, " ").trim();
+      return best || insideText || null;
+    };
+
+    return matches.map((el) => ({
+      title: titleFor(el),
+      html: el.outerHTML,
+    }));
+  }, list)) as { title: string | null; html: string }[];
+
+  return collected.map((chapter) => ({
+    title: chapter.title,
+    html: chapter.html,
+  }));
 }
 
 export function findChapterTitle(doc: Document) {

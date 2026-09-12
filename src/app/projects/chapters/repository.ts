@@ -2,16 +2,20 @@ import type { Page } from "puppeteer";
 import type { Kysely } from "kysely";
 import { sql } from "kysely";
 import {
+  collectScrolledChapters,
   getProjectConfig,
+  stripSiteChrome,
   tryExtractContent,
   updateProjectConfig,
 } from "../utils";
 import { newBrowserPage } from "../../../lib/browser";
 import { browserExecutor } from "../../../lib/bounded-executor";
 import { HTTPError } from "../../../lib/error";
+import { FontDecryptor } from "../../../lib/font-decryptor";
+import { assertSafeOutboundUrl } from "../../../lib/network-policy";
 import db from "../../../db";
 import type { DB } from "../../../db/types";
-import { uuid, waitFor } from "../../../lib/utils";
+import { cleanHTML, uuid, waitFor } from "../../../lib/utils";
 import { importQueue } from "./context";
 
 // Belt-and-suspenders retries on top of the (projectId,index) unique index:
@@ -132,6 +136,94 @@ export function queueImportChapters(payload: {
       }
 
       ctx.setProgress(100, "Done");
+    },
+    { namespace: projectId },
+  );
+}
+
+/**
+ * Import every chapter a reader page loads as it is scrolled.
+ *
+ * Unlike `queueImportChapters`, nothing is re-fetched per chapter: the page has
+ * already rendered each one, so the DOM is read directly. That is both faster
+ * and the only reliable way to reach chapters a site exposes solely through
+ * scrolling.
+ *
+ * Chapters captured this way do not go through `tryExtractContent`, so the
+ * Readability/selector fallbacks do not apply — the caller's selector decides
+ * what a chapter is. The project's font map is still applied, and a newly
+ * detected map is persisted, matching the link importer.
+ */
+export function queueImportScrolledChapters(payload: {
+  projectId: string;
+  url: string;
+  selector: string | string[];
+  framePath?: string[] | null;
+  maxScrolls?: number;
+}) {
+  const { projectId, url, selector, framePath, maxScrolls } = payload;
+
+  return importQueue.add(
+    async (ctx) => {
+      let page: Page | null = null;
+      const releaseBrowser = await browserExecutor.acquire();
+
+      try {
+        await assertSafeOutboundUrl(url);
+        page = await newBrowserPage();
+        await page.setViewport({ width: 1280, height: 800 });
+        await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
+
+        ctx.setProgress(5, "Loading chapters from the page...");
+
+        const found = await collectScrolledChapters(page, selector, {
+          framePath,
+          maxScrolls,
+        });
+
+        if (found.length === 0) {
+          throw new Error(
+            "No chapters matched on that page — pick the content selector again, or import the chapters as links",
+          );
+        }
+
+        let fontDecryptMap = await getProjectConfig(projectId).then(
+          (config) => config.fontDecryptMap ?? null,
+        );
+        let index = 0;
+
+        for (const chapter of found) {
+          ctx.setProgress(
+            (index / found.length) * 100,
+            `Saving ${chapter.title ?? `chapter ${index + 1}`}...`,
+          );
+
+          const cleaned = cleanHTML(stripSiteChrome(chapter.html).html);
+          if (!cleaned.trim()) {
+            index++;
+            continue;
+          }
+
+          let content = cleaned;
+          if (fontDecryptMap) {
+            content = FontDecryptor.fromMap(fontDecryptMap).decrypt(content);
+          }
+
+          const title =
+            chapter.title || `Chapter ${(await getLastIndex(projectId)) + 1}`;
+
+          await insertChapterAtNextIndex(projectId, { title, content });
+          index++;
+        }
+
+        ctx.setProgress(100, `Imported ${index} chapter(s)`);
+      } catch (err) {
+        console.error(err);
+        throw err;
+      } finally {
+        if (page) await page.close();
+        releaseBrowser();
+      }
     },
     { namespace: projectId },
   );

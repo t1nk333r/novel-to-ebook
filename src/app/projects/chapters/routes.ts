@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { openApi } from "hono-zod-openapi";
 import { ChapterSchema, CreateChapterSchema } from "./schema";
+import { contentSelectorList } from "../schema";
 import db from "../../../db";
 import { uuid, waitFor } from "../../../lib/utils";
 import z from "zod";
@@ -8,6 +9,7 @@ import {
   insertChapterAtNextIndex,
   queueImportChapters,
   reorderChapters,
+  queueImportScrolledChapters,
 } from "./repository";
 import { streamSSE } from "hono/streaming";
 import { importQueue } from "./context";
@@ -222,6 +224,39 @@ router.post(
     const { links, delayMs } = c.req.valid("json");
 
     const res = queueImportChapters({ projectId, links, delayMs });
+
+    return c.var.res({ taskId: res.id });
+  },
+);
+
+// Extract & import every chapter a reading page loads as it is scrolled
+router.post(
+  "/import-scroll",
+  openApi({
+    tags: ["Projects"],
+    summary: "Import chapters a reading page loads while scrolling",
+    request: {
+      param: z.object({ projectId: z.string() }),
+      json: z.object({
+        url: z.url(),
+        selector: contentSelectorList,
+        framePath: z.string().min(1).array().max(limits.frames).nullish(),
+        maxScrolls: z.number().int().min(1).max(limits.scrollLoads).optional(),
+      }),
+    },
+    responses: { 200: z.object({ taskId: z.uuid() }) },
+  }),
+  async (c) => {
+    const { projectId } = c.req.valid("param");
+    const { url, selector, framePath, maxScrolls } = c.req.valid("json");
+
+    const res = queueImportScrolledChapters({
+      projectId,
+      url,
+      selector,
+      framePath,
+      maxScrolls,
+    });
 
     return c.var.res({ taskId: res.id });
   },

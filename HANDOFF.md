@@ -14,12 +14,12 @@ remediation/plans-001-018   27de206   all work lives here
 
 | Gate | Result |
 |---|---|
-| `bun test` | 115 pass, 0 fail, 16 files |
+| `bun test` | 136 pass, 0 fail, 19 files |
 | `pnpm typecheck` | clean (server + UI) |
 | `pnpm lint` | 0 errors, 23 warnings |
 | `pnpm build` | `ui/dist/index.html` present |
 
-Plans 001–026 are all done: the set closed on 2026-09-12 (016, 020, 021, 022,
+Plans 001–027 are all done: the set closed on 2026-09-12 (016, 020, 021, 022,
 024, 025 and 026 landed that day, plus 008's step 3 on 2026-09-02).
 
 A container is running and serving on `0.0.0.0:3000`, but it was **built before
@@ -93,6 +93,7 @@ git submodule update --init --recursive     # only if pnpm build fails
 | 024 | Browser navigation policy | DONE — redirects into the network blocked |
 | 025 | Picker → save flow | DONE — silent validation, not a dead dialog |
 | 026 | Exporter image URLs | DONE — was reading local files into the EPUB |
+| 027 | Scroll-loaded chapter import | DONE — one URL, every chapter the page loads |
 
 `plans/README.md` holds the full reconciliation log with per-plan evidence.
 
@@ -106,7 +107,7 @@ the live 429/200 evidence are in `plans/README.md`.
 
 ### Test suite
 
-10 tests across 3 files at session start; **115 across 16 files** now. Still thin
+10 tests across 3 files at session start; **136 across 19 files** now. Still thin
 relative to the surface, but every plan landed this session carries tests that fail
 when its fix is removed (checked by neutering the fix).
 Plans 003–014 named test targets (`auth`, `startup`, `rescan`, `font-attempts`)

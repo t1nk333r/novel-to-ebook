@@ -35,6 +35,7 @@ status here.
 | 024 | Validate every Chromium navigation, not just the entry URL | P1 | M-L | 005 | DONE (verified 2026-09-12 — redirect into loopback blocked) |
 | 025 | Finish the picker → save flow (stacked Radix dialogs) | P1 | S-M | 020 | DONE (verified 2026-09-12 — silent validation, not a dead dialog; see the plan's Resolution) |
 | 026 | Stop the EPUB exporter fetching arbitrary URLs | P2 | S | 005 | DONE (verified 2026-09-12 — reproduced a local-file read into the EPUB) |
+| 027 | Import the chapters a reader page loads while scrolling | P2 | M | 020, 021 | DONE (verified 2026-09-12 — 7 chapters from one URL, 13 through the UI) |
 
 Status values: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED`, or `REJECTED`.
 `DONE (verified …)` means the done criteria were re-checked against the working
@@ -93,6 +94,27 @@ finished work — see the commit for the starvation measurement; plus the browse
 launch race, the out-of-policy font fetch, the silently swallowed scan failure,
 the reorder/NOT NULL race, the cross-project import stream, and two UI
 robustness fixes. `tests/queue-manager.test.ts` pins the queue contract.
+
+### 2026-09-12 — plan 027 executed (scroll-loaded chapters, recorded post hoc)
+
+Requested directly by the operator after testing a real Webnovel chapter: the
+site appends the following chapters as you scroll (measured: 1 container at load,
+7 after scrolling, page height 4.4k → 41.7k px). One request now imports every
+chapter the page will load — 7 from the API with a 6-scroll bound, 13 through the
+UI with the default 12 — instead of one URL per chapter.
+
+Design decisions worth keeping: one selector match is one chapter (site-agnostic);
+the rendered DOM is read rather than re-fetched per chapter (faster, and the only
+way to reach chapters exposed purely by scrolling); titles come from the nearest
+heading before each match; the existing import queue carries it, so the progress
+panel and ordering rules apply unchanged; scrolling stops when the page stops
+growing and is bounded by MAX_SCROLL_LOADS.
+
+Written up after the fact as `plans/027-scroll-import.md`, including its limits
+(no Readability fallback on this path, no de-duplication, fixed 900 ms per scroll
+step). Verified: 7 chapters with zero site furniture and a 7-entry EPUB TOC, the
+UI control present and firing, and a browser-gated fixture test for the scroll
+loop itself.
 
 ### 2026-09-12 — plan 022 executed (local Ollama selector generation)
 

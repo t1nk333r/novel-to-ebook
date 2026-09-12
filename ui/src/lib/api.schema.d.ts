@@ -280,6 +280,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{projectId}/chapters/import-scroll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import chapters a reading page loads while scrolling */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** Format: uri */
+                        url: string;
+                        selector: string | string[];
+                        framePath?: string[] | null;
+                        maxScrolls?: number;
+                    };
+                };
+            };
+            responses: {
+                /** @description 200 OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: uuid */
+                            taskId: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects": {
         parameters: {
             query?: never;
@@ -516,6 +567,7 @@ export interface paths {
                         /** Format: uri */
                         url: string;
                         selector?: (string | string[]) | null;
+                        framePath?: string[] | null;
                     };
                 };
             };
@@ -722,6 +774,72 @@ export interface paths {
                     content: {
                         "application/json": {
                             result: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/generate-selectors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate content selectors */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        html: string;
+                        followUp?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description 200 OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            title: string;
+                            chapter?: string | null;
+                            isChapterInTitle?: boolean | null;
+                            titleSeparator?: string | null;
+                            content: string[];
+                            framePath?: string[];
+                            urls?: {
+                                nextChapter?: string | null;
+                                prevChapter?: string | null;
+                            } | null;
+                        };
+                    };
+                };
+                /** @description 503 Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: boolean;
+                            message: string;
                         };
                     };
                 };
