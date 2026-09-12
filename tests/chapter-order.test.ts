@@ -52,9 +52,11 @@ beforeAll(async () => {
   if (error) throw error;
 });
 
-afterAll(async () => {
-  await db.destroy();
-});
+// Deliberately no `db.destroy()` here: `db` is the process-wide singleton from
+// src/db, and destroying it left every later test file querying a dead driver
+// ("driver has already been destroyed"). That only stayed hidden because files
+// run in alphabetical order and this one sorted after the other DB-backed ones.
+// Bun exits after the run, so the worker does not need tearing down.
 
 describe("chapter order allocation", () => {
   test("concurrent creates never collide on (projectId,index)", async () => {

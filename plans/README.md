@@ -24,7 +24,7 @@ status here.
 | 013 | Restrict chapter updates to editable fields | P2 | S | 002 | DONE |
 | 014 | Serialize chapter order allocation | P2 | M | 002, 013 | DONE (merged 2026-09-02) |
 | 015 | Prevent stale reader loads from winning navigation | P2 | S | 002 | DONE (merged 2026-09-02) |
-| 016 | Make library scanning incremental and concurrency-bounded | P2 | M | 009 | TODO |
+| 016 | Make library scanning incremental and concurrency-bounded | P2 | M | 009 | DONE (verified 2026-09-12 — second scan parses nothing) |
 | 017 | Refresh cached books conditionally | P2 | S | 002 | DONE (merged 2026-09-02) |
 | 018 | Add a production build and executable documentation | P2 | S | 001, 002, 004 | DONE |
 | 019 | Generate content selectors that match exactly the intended element | P2 | S | 002 | DONE (merged 2026-09-02) |
@@ -93,6 +93,25 @@ finished work — see the commit for the starvation measurement; plus the browse
 launch race, the out-of-policy font fetch, the silently swallowed scan failure,
 the reorder/NOT NULL race, the cross-project import stream, and two UI
 robustness fixes. `tests/queue-manager.test.ts` pins the queue contract.
+
+### 2026-09-12 — plan 016 executed (scan is incremental and bounded)
+
+Every five-minute scan reparsed every book, rerendered every cover, and opened
+the whole library at once. The scan now separates enumeration from enrichment,
+memoizes successful enrichment by path + size + mtime (cover bytes included, so
+`/library/cover.jpeg` no longer re-opens the book), never memoizes a failure,
+bounds file work with `MAX_SCAN_CONCURRENCY` (default 4), rolls directory
+metadata up in one pass, and evicts cache entries only from a scan that ran to
+completion — an aborted scan cannot prune.
+
+`parent` also stopped stripping every dot from directory names, which had folded
+`vol.1/` into `vol1/`.
+
+Evidence: `tests/library-scan.test.ts` injects the enricher so reparse counts are
+exact — a second unchanged scan makes zero calls — plus add/change/remove, retry
+after failure, concurrency ceiling, abort, and dotted-directory cases. Live with
+real EPUBs: metadata titles, nested parents, directory covers, covers served from
+cache, rescan 204.
 
 ### 2026-09-12 — plan 024 executed (browser navigations now policy-checked)
 

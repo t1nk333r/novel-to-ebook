@@ -13,6 +13,46 @@
 - **Depends on**: `plans/009-rescan-race.md`
 - **Category**: perf
 - **Planned at**: commit `5b03d47`, 2026-08-30
+- **Resolved**: 2026-09-12 — see "Resolution" below
+
+## Resolution 2026-09-12
+
+The scan is now incremental and bounded. `src/app/library/utils.ts`:
+
+- **Enumeration is separate from enrichment.** `readdir` produces entries; each
+  book is enriched (EPUB parse, cover extract, `sharp` resize, blur hash) only
+  when the memo misses.
+- **The memo is keyed by absolute path and validated by size + mtime**, which is
+  what the plan's STOP condition called for — never content-hashing an unchanged
+  file. It holds the *compressed cover bytes* too, so `/library/cover.jpeg` keeps
+  working without re-opening the book. It lives in memory on purpose: a restart
+  pays one cold scan and there is no cache schema to migrate.
+- **Failures are not memoized**, so a book that failed to parse is retried.
+- **Concurrency is bounded** by `MAX_SCAN_CONCURRENCY` (default 4) through a new
+  `mapWithConcurrency` helper, replacing the unbounded nested `Promise.all` that
+  opened every book at once, and it aborts between items.
+- **Directory rollup is one pass** building two maps, replacing a per-directory
+  `find`/`filter`/`sort` over the whole result (O(n²) before). The cover choice
+  is now deterministic (lowest key) — `readdir` order can change between scans,
+  and a directory cover that flips on its own looks like a bug.
+- **Eviction happens only after a scan runs to completion.** A superseded scan is
+  aborted, and an aborted scan does not prune, so it cannot drop live entries
+  from an incomplete view.
+
+Also fixed while in the function: `parent` was built with
+`dirname(relative).replaceAll(".", "")`, which folded a directory named `vol.1`
+into `vol1` and mangled any name containing `..`. It now strips only the `"."`
+that means "the scan root".
+
+Evidence: 10 tests in `tests/library-scan.test.ts` drive the scan with an
+injected enricher, so "did it reparse?" is a counter rather than a timing guess —
+the second unchanged scan makes **zero** enrichment calls, a modified or added
+file is parsed, a removed file drops out and is parsed again if it returns, a
+failing parse is retried, peak concurrency stays within the limit, and an aborted
+scan rejects without returning partial items. Live check against real EPUBs:
+metadata titles parsed, `parent=series` for a nested book, the directory row
+carrying its child's cover, covers served as 252-byte webp from cache, and a
+rescan returning 204 with covers still served.
 
 ## Why this matters
 

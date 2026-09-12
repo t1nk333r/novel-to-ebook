@@ -64,6 +64,34 @@ export async function translate(text: string, to = "en") {
   return response.text;
 }
 
+/**
+ * Run `mapper` over `items` with at most `limit` in flight, preserving input
+ * order in the result. Used by the library scan, where unbounded `Promise.all`
+ * over a large library opened every book at once.
+ */
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  mapper: (item: T, index: number) => Promise<R>,
+  signal?: AbortSignal,
+) {
+  const results = new Array<R>(items.length);
+  const budget = Math.max(1, Math.min(Math.trunc(limit) || 1, items.length));
+  let next = 0;
+
+  async function worker() {
+    while (true) {
+      signal?.throwIfAborted();
+      const index = next++;
+      if (index >= items.length) return;
+      results[index] = await mapper(items[index] as T, index);
+    }
+  }
+
+  await Promise.all(Array.from({ length: budget }, () => worker()));
+  return results;
+}
+
 export function cleanHTML(html: string) {
   return sanitizeHtml(html, {
     allowedTags: [

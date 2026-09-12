@@ -5,14 +5,40 @@ import * as blurhash from "blurhash";
 import sharp from "sharp";
 import { pdfToImg } from "pdftoimg-js";
 import db from "../../db";
+import { limits } from "../../lib/limits";
+import { mapWithConcurrency } from "../../lib/utils";
 
 const supportExt = ["epub", "pdf"];
 
+type CoverData = { data: Buffer; mimeType: string };
+
+/** What a single book contributes, beyond what `stat` already tells us. */
+type Enrichment = {
+  metadata: Record<string, string>;
+  cover: CoverData | null;
+  coverHash: string | null;
+};
+
+type CacheEntry = Enrichment & { size: number; mtimeMs: number };
+
+/**
+ * Enrichment memo, keyed by absolute path and validated by size + mtime.
+ *
+ * In memory on purpose: a restart pays one cold scan, which is cheaper than a
+ * cache schema and its migrations. Only *successful* enrichment is stored, so a
+ * file that failed to parse is retried on the next scan.
+ */
+const enrichmentCache = new Map<string, CacheEntry>();
+
+/** Injectable so tests can count parses without touching real books. */
+export type FileEnricher = (fullPath: string) => Promise<Enrichment>;
+
 export async function scanLibrary(
   paths: string[],
-  opt?: { signal?: AbortSignal },
+  opt?: { signal?: AbortSignal; enrich?: FileEnricher },
 ) {
   const { signal } = opt || {};
+  const enrich = opt?.enrich ?? enrichFile;
   signal?.throwIfAborted();
 
   const readHistories = await db
@@ -29,147 +55,208 @@ export async function scanLibrary(
 
   signal?.throwIfAborted();
 
-  const files = await Promise.all(
-    paths.map(async (p) => {
-      signal?.throwIfAborted();
-      const basePath = path.resolve(p);
+  const seen = new Set<string>();
+  const items: LibraryItem[] = [];
 
-      let entries = await fs.readdir(p, {
-        recursive: true,
-        withFileTypes: true,
+  for (const p of paths) {
+    signal?.throwIfAborted();
+    const basePath = path.resolve(p);
+
+    const entries = (
+      await fs.readdir(p, { recursive: true, withFileTypes: true })
+    ).filter((entry) => {
+      if (entry.isDirectory()) return true;
+      if (entry.isFile()) {
+        const ext = entry.name.split(".").pop();
+        return supportExt.includes(ext?.toLowerCase() ?? "");
+      }
+      return false;
+    });
+
+    const scanned = await mapWithConcurrency(
+      entries,
+      limits.scanConcurrency,
+      async (entry) => readEntry({ entry, p, basePath, enrich, readHistories, seen }),
+      signal,
+    );
+
+    items.push(...scanned);
+  }
+
+  signal?.throwIfAborted();
+  rollUpDirectories(items);
+
+  // Evict only from a scan that ran to completion: an aborted scan has an
+  // incomplete view of the library and would drop live entries.
+  if (!signal?.aborted) {
+    for (const key of enrichmentCache.keys()) {
+      if (!seen.has(key)) enrichmentCache.delete(key);
+    }
+  }
+
+  return items;
+}
+
+type LibraryItem = {
+  key: string;
+  name: string;
+  path: string;
+  parent: string;
+  fullPath: string;
+  isDirectory: boolean;
+  metadata: Record<string, string | number | null>;
+  cover: string | null;
+  coverHash: string | null;
+  getCover?: () => Promise<CoverData>;
+};
+
+async function readEntry(input: {
+  entry: { name: string; path?: string };
+  p: string;
+  basePath: string;
+  enrich: FileEnricher;
+  readHistories: Record<string, number>;
+  seen: Set<string>;
+}): Promise<LibraryItem> {
+  const { entry, p, basePath, enrich, readHistories, seen } = input;
+
+  const fullPath = path.join(entry.path ?? p, entry.name);
+  const relative = path.relative(p, fullPath).replaceAll("\\", "/");
+  const parentDir = path.dirname(relative).replaceAll("\\", "/");
+  // "." is the scan root; anything else keeps its real name, dots included
+  // (the previous pass stripped every dot, folding `vol.1/` into `vol1/`).
+  const parent = parentDir === "." ? "" : parentDir;
+  const key = relative;
+  const stat = await fs.stat(fullPath);
+  const isDirectory = stat.isDirectory();
+
+  seen.add(fullPath);
+
+  const cached = enrichmentCache.get(fullPath);
+  const isUnchangedFile =
+    !isDirectory &&
+    cached !== undefined &&
+    cached.size === stat.size &&
+    cached.mtimeMs === stat.mtimeMs;
+
+  let enrichment: Enrichment;
+  if (isDirectory) {
+    enrichment = { metadata: {}, cover: null, coverHash: null };
+  } else if (isUnchangedFile && cached) {
+    enrichment = {
+      metadata: cached.metadata,
+      cover: cached.cover,
+      coverHash: cached.coverHash,
+    };
+  } else {
+    try {
+      enrichment = await enrich(fullPath);
+      enrichmentCache.set(fullPath, {
+        ...enrichment,
+        size: stat.size,
+        mtimeMs: stat.mtimeMs,
       });
+    } catch (err) {
+      // Never memoize a failure: the next scan should try again.
+      console.log("Err reading file!", entry.name, err);
+      enrichment = { metadata: {}, cover: null, coverHash: null };
+    }
+  }
 
-      entries = entries.filter((entry) => {
-        signal?.throwIfAborted();
+  const title = entry.name.split(".").slice(0, -1).join(".");
+  const coverData = enrichment.cover;
 
-        if (entry.isDirectory()) return true;
-        if (entry.isFile()) {
-          const ext = entry.name.split(".").pop();
-          return supportExt.includes(ext?.toLowerCase() ?? "");
-        }
-        return false;
-      });
+  return {
+    key,
+    name: entry.name,
+    path: basePath,
+    parent,
+    fullPath,
+    isDirectory,
+    metadata: {
+      title,
+      ...enrichment.metadata,
+      created: stat.birthtimeMs,
+      modified: stat.mtimeMs,
+      readAt: readHistories[key] || null,
+    },
+    cover: coverData ? getCoverUrl(key) : null,
+    coverHash: enrichment.coverHash,
+    getCover: coverData ? () => Promise.resolve(coverData) : undefined,
+  };
+}
 
-      const result = await Promise.all(
-        entries.map(async (entry: any) => {
-          signal?.throwIfAborted();
+/**
+ * Directory rows inherit the first child cover and the most recent child
+ * readAt. One pass building two maps, where the previous version re-scanned the
+ * whole result for every directory.
+ */
+function rollUpDirectories(items: LibraryItem[]) {
+  const coverByParent = new Map<string, { key: string; cover: string }>();
+  const readAtByParent = new Map<string, number>();
 
-          const fullPath = path.join(entry.path ?? p, entry.name);
-          const relative = path.relative(p, fullPath);
-          const parent = path
-            .dirname(relative)
-            .replaceAll("\\", "/")
-            .replaceAll(".", "")
-            .replaceAll("..", "");
-          const key = relative.replaceAll("\\", "/");
-          const stat = await fs.stat(fullPath);
+  for (const item of items) {
+    if (item.isDirectory) continue;
 
-          let metadata: Record<string, string> = {
-            title: entry.name.split(".").slice(0, -1).join("."),
-          };
-          let getCover:
-            | (() => Promise<{
-                data: Buffer<ArrayBufferLike>;
-                mimeType: string;
-              }>)
-            | undefined = undefined;
-          let cover: string | null = null;
-          let coverHash: string | null = null;
+    if (item.cover) {
+      const current = coverByParent.get(item.parent);
+      // Deterministic pick: `readdir` order can change between scans, and a
+      // directory cover that flips on its own looks like a bug.
+      if (!current || item.key < current.key) {
+        coverByParent.set(item.parent, { key: item.key, cover: item.cover });
+      }
+    }
 
-          try {
-            if (entry.name.endsWith(".epub")) {
-              const epub = new EPub(fullPath);
-              await epub.parse();
-              metadata = epub.metadata as never;
+    const readAt = item.metadata.readAt;
+    if (typeof readAt === "number") {
+      const current = readAtByParent.get(item.parent);
+      if (current === undefined || readAt > current) {
+        readAtByParent.set(item.parent, readAt);
+      }
+    }
+  }
 
-              const coverId = (epub.metadata as any).cover;
-              if (coverId) {
-                try {
-                  const image = await epub.getImage(coverId);
-                  const coverData = await compressImage(image.data, 256);
+  for (const item of items) {
+    if (!item.isDirectory) continue;
+    item.cover = coverByParent.get(item.key)?.cover ?? null;
+    item.metadata.readAt = readAtByParent.get(item.key) ?? null;
+  }
+}
 
-                  getCover = async () => ({
-                    data: coverData,
-                    mimeType: "image/webp",
-                  });
-                  cover = getCoverUrl(key);
-                  coverHash = await createBlurHash(image.data);
-                } catch (err) {
-                  console.error(err);
-                }
-              }
-            }
+/** Parse one book: metadata, cover bytes, blur hash. */
+async function enrichFile(fullPath: string): Promise<Enrichment> {
+  let metadata: Record<string, string> = {};
+  let cover: CoverData | null = null;
+  let coverHash: string | null = null;
 
-            if (entry.name.endsWith(".pdf")) {
-              const coverImg = await pdfToImg(fullPath, {
-                pages: "firstPage",
-                imgType: "jpg",
-              });
-              const coverBuf = Buffer.from(
-                coverImg.replace("data:image/jpeg;base64,", ""),
-                "base64",
-              );
+  if (fullPath.endsWith(".epub")) {
+    const epub = new EPub(fullPath);
+    await epub.parse();
+    metadata = epub.metadata as never;
 
-              try {
-                const coverData = await compressImage(coverBuf, 256);
-                getCover = async () => ({
-                  data: coverData,
-                  mimeType: "image/webp",
-                });
-                cover = getCoverUrl(key);
-                coverHash = await createBlurHash(coverData);
-              } catch (err) {
-                console.error(err);
-              }
-            }
-          } catch (err) {
-            console.log("Err reading file!", entry.name, err);
-          }
+    const coverId = (epub.metadata as { cover?: string }).cover;
+    if (coverId) {
+      const image = await epub.getImage(coverId);
+      cover = { data: await compressImage(image.data, 256), mimeType: "image/webp" };
+      coverHash = await createBlurHash(image.data);
+    }
+  }
 
-          return {
-            key,
-            name: entry.name,
-            path: basePath,
-            parent,
-            fullPath,
-            isDirectory: entry.isDirectory(),
-            metadata: {
-              ...metadata,
-              created: stat.birthtimeMs,
-              modified: stat.mtimeMs,
-              readAt: readHistories[key] || null,
-            },
-            cover,
-            coverHash,
-            getCover,
-          };
-        }),
-      );
+  if (fullPath.endsWith(".pdf")) {
+    const coverImg = await pdfToImg(fullPath, {
+      pages: "firstPage",
+      imgType: "jpg",
+    });
+    const coverBuf = Buffer.from(
+      coverImg.replace("data:image/jpeg;base64,", ""),
+      "base64",
+    );
 
-      signal?.throwIfAborted();
+    cover = { data: await compressImage(coverBuf, 256), mimeType: "image/webp" };
+    coverHash = await createBlurHash(coverBuf);
+  }
 
-      // fill directory metadata
-      result.forEach((item, idx) => {
-        if (!item.isDirectory || signal?.aborted) return;
-
-        // cover
-        result[idx]!.cover =
-          result.find((i) => i.parent === item.key && i.cover != null)?.cover ||
-          null;
-
-        // read metadata
-        result[idx]!.metadata.readAt =
-          result
-            .filter((i) => i.parent === item.key && i.metadata.readAt)
-            .sort((a, b) => b.metadata.readAt! - a.metadata.readAt!)[0]
-            ?.metadata.readAt || null;
-      });
-
-      return result;
-    }),
-  );
-
-  return files.flat();
+  return { metadata, cover, coverHash };
 }
 
 async function compressImage(image: Buffer, width: number) {

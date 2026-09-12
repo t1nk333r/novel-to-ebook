@@ -26,4 +26,5 @@ export const limits = {
   redirects: readPositiveInteger("MAX_FETCH_REDIRECTS", 5),
   browserConcurrency: readPositiveInteger("MAX_BROWSER_CONCURRENCY", 3),
   aiConcurrency: readPositiveInteger("MAX_AI_CONCURRENCY", 2),
+  scanConcurrency: readPositiveInteger("MAX_SCAN_CONCURRENCY", 4),
 } as const;
