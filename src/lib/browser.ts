@@ -9,6 +9,7 @@ import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import BlockResourcesPlugin from "puppeteer-extra-plugin-block-resources";
 import { PuppeteerBlocker } from "@ghostery/adblocker-puppeteer";
 import { waitFor } from "./utils";
+import { isAllowedOutboundUrl } from "./network-policy";
 import { type Action, type ActionWithLoopUntil } from "../app/projects/schema";
 
 let browserPromise: Promise<Browser> | null = null;
@@ -42,7 +43,19 @@ export async function getBrowser(opt?: { headless?: boolean }) {
       ],
       // userDataDir: "./browser-data", // Specify a directory path
     });
-    blocker = await PuppeteerBlocker.fromPrebuiltAdsAndTracking(fetch);
+
+    try {
+      blocker = await PuppeteerBlocker.fromPrebuiltAdsAndTracking(fetch);
+    } catch (err) {
+      // Best-effort: the filter lists come from a CDN, and a bad response there
+      // must not take down every browser-driven feature (extraction, snapshots,
+      // imports). Pages still work, they just stop blocking ads.
+      blocker = null;
+      console.warn(
+        "Ad blocker unavailable, continuing without it:",
+        err instanceof Error ? err.message : err,
+      );
+    }
 
     return launched;
   })().catch((err) => {
@@ -51,6 +64,52 @@ export async function getBrowser(opt?: { headless?: boolean }) {
   });
 
   return browserPromise;
+}
+
+/**
+ * Outranks the ad blocker, which continues top-level documents at priority 0.
+ * Puppeteer resolves interception cooperatively: the highest priority action
+ * wins, and the blocker's handler returns early when another one has acted.
+ */
+const NAVIGATION_BLOCK_PRIORITY = 100;
+
+/**
+ * Refuse in-browser navigations to addresses the outbound policy rejects.
+ *
+ * Chromium resolves DNS and follows redirects on its own, so the per-call
+ * `assertSafeOutboundUrl` only ever covered the entry URL: a public page
+ * answering `302 Location: http://169.254.169.254/` had the internal document
+ * rendered, returned by the snapshot route, and persisted as chapter content.
+ * This check runs on the document itself, including every redirect hop.
+ *
+ * Subresources stay unfiltered — filtering them measurably changes page
+ * behaviour, and they are not what gets saved as a chapter.
+ *
+ * `isAllowed` is injectable so tests can exercise the wiring without the
+ * public internet.
+ */
+export async function guardNavigations(
+  page: Page,
+  options: { isAllowed?: (url: string) => boolean } = {},
+) {
+  const isAllowed = options.isAllowed ?? isAllowedOutboundUrl;
+
+  await page.setRequestInterception(true);
+
+  page.on("request", (request) => {
+    const isDocument =
+      request.isNavigationRequest() || request.resourceType() === "document";
+
+    if (isDocument && !isAllowed(request.url())) {
+      void request.abort("blockedbyclient", NAVIGATION_BLOCK_PRIORITY);
+      return;
+    }
+
+    // Low priority on purpose: the ad blocker's decision (blocking a tracker,
+    // or continuing a document) must win, and with no blocker this still lets
+    // the request through.
+    void request.continue(undefined, -1);
+  });
 }
 
 export async function newBrowserPage(opt?: {
@@ -64,6 +123,9 @@ export async function newBrowserPage(opt?: {
   if (opt?.blockResources) {
     blockResources.onPageCreated(page);
   }
+
+  // Applied here rather than at each call site so no future page can skip it.
+  await guardNavigations(page);
 
   return page;
 }

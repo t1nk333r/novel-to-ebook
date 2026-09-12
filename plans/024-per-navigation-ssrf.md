@@ -16,6 +16,57 @@
 - **Depends on**: `plans/005-safe-outbound-urls.md` (landed)
 - **Category**: security
 - **Planned at**: commit `04dfe0e`, 2026-09-12
+- **Resolved**: 2026-09-12 — navigation interception (option 1), see below
+
+## Resolution 2026-09-12
+
+**Reproduced end to end before writing any code.** A throwaway script stood up a
+loopback "internal service" returning `INTERNAL-SECRET-MARKER`, and pointed
+Chromium at `https://httpbin.org/redirect-to?url=http://127.0.0.1:3015/` — a
+public URL the entry-URL guard approves:
+
+```
+WITHOUT guard: finalUrl "http://127.0.0.1:3015/"   markerVisible true
+WITH guard:    finalUrl "chrome-error://chromewebdata/"
+               blocked: http://127.0.0.1:3015/ :: net::ERR_BLOCKED_BY_CLIENT
+```
+
+So the plan's predicted exposure was real: an approved page redirects the browser
+into loopback and the internal document is rendered — the same HTML the snapshot
+route returns and the import worker persists.
+
+**Mechanism: option 1 (navigation interception), because the alternative was
+measurably unavailable.** Two interception layers already exist in this app —
+the Ghostery ad blocker calls `page.setRequestInterception(true)` and registers
+`page.on('request')` — so the plan's warning about conflicting layers was the
+real risk. Reading that dependency settled it: its handler starts with
+`if (details.isInterceptResolutionHandled?.()) return;` and continues top-level
+documents at **priority 0**, i.e. it participates in Puppeteer's cooperative
+interception. A guard that aborts disallowed documents at a higher priority
+therefore overrides it without a second interception layer, and its own handler
+continues everything else at priority −1 so the blocker's decisions still win.
+
+The probe confirmed coexistence rather than assuming it: no "Request is already
+handled" console noise, and `example.com` still rendered with both active.
+
+What landed: `guardNavigations(page, { isAllowed? })` in `src/lib/browser.ts`,
+applied inside `newBrowserPage()` so no call site — present or future — can skip
+it (the plan asked for the three call sites; this covers them and closes the door
+behind them). `isAllowed` is injectable so the regression test can prove both
+outcomes against one loopback fixture without the public internet.
+
+Verified after: the redirect into loopback is refused at the route level
+(`POST /projects/extract` → 400, no internal content), snapshots still stream
+screenshots and a `result` event, and extraction with a selector returns the
+page's blocks. The bare-extract failure on `example.com` is pre-existing — the
+deployed pre-change build fails it identically, because the page is under the
+auto-detect length threshold.
+
+**One live defect found and fixed while testing:** the ad blocker loads its
+filter lists from a CDN, and during this session that CDN returned HTML, so
+`fromPrebuiltAdsAndTracking` threw — inside `getBrowser()`, which meant *every*
+browser-driven feature failed. It is now best-effort: on failure it logs and
+continues without ad blocking.
 
 ## Why this matters
 

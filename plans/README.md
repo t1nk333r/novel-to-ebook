@@ -32,7 +32,7 @@ status here.
 | 021 | Make the selector picker and extraction work inside iframes | P2 | M | 019, 020 | TODO |
 | 022 | Add a local Ollama backend for AI selector generation | P3 | M | 021 | TODO |
 | 023 | Let the web UI authenticate with the API bearer token | P1 | M | 004 | DONE (verified 2026-09-02) |
-| 024 | Validate every Chromium navigation, not just the entry URL | P1 | M-L | 005 | TODO |
+| 024 | Validate every Chromium navigation, not just the entry URL | P1 | M-L | 005 | DONE (verified 2026-09-12 — redirect into loopback blocked) |
 | 025 | Finish the picker → save flow (stacked Radix dialogs) | P1 | S-M | 020 | DONE (verified 2026-09-12 — silent validation, not a dead dialog; see the plan's Resolution) |
 | 026 | Stop the EPUB exporter fetching arbitrary URLs | P2 | S | 005 | DONE (verified 2026-09-12 — reproduced a local-file read into the EPUB) |
 
@@ -93,6 +93,35 @@ finished work — see the commit for the starvation measurement; plus the browse
 launch race, the out-of-policy font fetch, the silently swallowed scan failure,
 the reorder/NOT NULL race, the cross-project import stream, and two UI
 robustness fixes. `tests/queue-manager.test.ts` pins the queue contract.
+
+### 2026-09-12 — plan 024 executed (browser navigations now policy-checked)
+
+Reproduced before implementing: a public redirector (`httpbin.org`) was approved
+by the entry-URL guard and answered `302` into loopback, where a fixture service
+returned `INTERNAL-SECRET-MARKER` — Chromium rendered it (`finalUrl
+http://127.0.0.1:3015/`, marker visible). That document is exactly what the
+snapshot route returns and the import worker saves as chapter content.
+
+Implemented navigation interception inside `newBrowserPage()`, so every page —
+including any future call site — is covered:
+
+- document requests (and every redirect hop) are checked with the same policy as
+  the fetch paths; a disallowed one is aborted
+- the abort outranks the ad blocker's main-frame `continue` at priority 0, using
+  Puppeteer's cooperative interception; the guard's own `continue` runs at −1 so
+  the blocker still decides everything else
+- `isAllowed` is injectable, which is what lets the test prove both outcomes
+  against one loopback fixture with no public network
+
+Evidence: the redirect hop is blocked (`ERR_BLOCKED_BY_CLIENT` on
+`http://127.0.0.1:3015/`), the route answers 400 with no internal content,
+snapshots still stream screenshots plus a `result` event, and extraction with a
+selector still returns the page. `tests/navigation-guard.test.ts` (3 cases) fails
+when the guard is neutered — verified by neutering it.
+
+Also fixed, found live while testing: the ad blocker's filter-list CDN returned
+HTML this session, and because `getBrowser()` awaited it, **every** browser-driven
+feature failed. It is now best-effort and logs instead.
 
 ### 2026-09-12 — plan 026 executed (local file read into the exported EPUB)
 

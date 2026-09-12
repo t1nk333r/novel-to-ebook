@@ -105,11 +105,18 @@ and response sizes are capped.
 
 Two limits are worth knowing:
 
-- The filter checks the **host**, not what it resolves to, for the image URLs
-  inside an exported EPUB (`file://` and internal addresses are refused; a
-  hostname that resolves to a private address is not). That hook cannot do a DNS
-  lookup without blocking the export.
-- Chromium fetches a page's subresources itself, and only the page URL you
-  request is policy-checked. Do not point the extractor at pages you do not
-  trust to behave like ordinary web pages.
+- The browser is driven in-page, and the **document** it loads is checked at
+  every hop including redirects, so a page cannot bounce Chromium into your
+  network: a public URL answering `302 Location: http://169.254.169.254/` is
+  refused before anything is rendered. Subresources it fetches — images, fonts,
+  scripts, iframes — are **not** filtered, because filtering them measurably
+  changes how real pages behave, and they are not what gets saved as a chapter.
+- The EPUB export checks the **host** of each image URL, not what it resolves to
+  (`file://` and internal addresses are refused; a public name pointing at a
+  private address is not). That hook cannot do a DNS lookup without blocking the
+  export.
+
+Neither limit weakens the token boundary: the browser and the export are only
+reachable by a token holder, and the exposure addressed here is what a page the
+operator chose to fetch could otherwise do on its own.
 
