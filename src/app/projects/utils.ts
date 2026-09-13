@@ -1042,28 +1042,38 @@ export async function collectScrolledChapters(
       });
     }
 
+    /**
+     * The chapter's title, from whichever heading outranks the other.
+     *
+     * Two real failures shaped this. Preferring a preceding heading made every
+     * chapter of a book carry the site's tagline ("Translating for fun" — a
+     * header `<h1>`) because it precedes everything. Preferring a heading inside
+     * the block then let a share widget's `<h2>` ("Bagikan ini") beat the
+     * chapter's own `<h1>`, which sits just outside the content block.
+     *
+     * Rank decides; position only breaks the tie, where the chapter's own
+     * heading (inside) is the better bet than the page's.
+     */
+    const rankOf = (tagName: string) => (tagName === "H1" ? 0 : tagName === "H2" ? 1 : 2);
     const titleFor = (el: Element) => {
-      // A heading *inside* the extracted block is the chapter's own title and
-      // wins. Preferring a heading before the block looked equivalent until a
-      // site put its tagline in a header `<h1>`, which precedes every chapter —
-      // so every chapter of the book was titled "Translating for fun" while the
-      // real title sat inside the extraction.
       const inside = el.querySelector("h1, h2, h3");
       const insideText = (inside?.textContent ?? "").replace(/\s+/g, " ").trim();
-      if (insideText) return insideText;
 
-      // Otherwise the nearest heading before it, which is where sites that put
-      // the title outside the content block keep it.
       let best: string | null = null;
+      let bestRank = Number.POSITIVE_INFINITY;
       for (const heading of headings) {
         const position = el.compareDocumentPosition(heading);
         if (position & Node.DOCUMENT_POSITION_PRECEDING) {
           best = (heading.textContent ?? "").replace(/\s+/g, " ").trim();
+          bestRank = rankOf(heading.tagName);
         } else if (position & Node.DOCUMENT_POSITION_CONTAINED_BY) {
           break;
         }
       }
-      return best || null;
+
+      if (!insideText) return best || null;
+      if (!best) return insideText;
+      return rankOf(inside!.tagName) <= bestRank ? insideText : best;
     };
 
     // Site-specific but load-bearing: reader wrappers carry the chapter id

@@ -180,3 +180,38 @@ describe.skipIf(!executablePath)("collectScrolledChapters", () => {
     }
   }, 60_000);
 });
+
+describe.skipIf(!executablePath)("chapter titles", () => {
+  const run = async (html: string) => {
+    const browser = await launchBrowser(executablePath!);
+    try {
+      const tab = await browser.newPage();
+      await tab.setContent(html);
+      const chapters = await collectScrolledChapters(tab, ".entry-content", { maxScrolls: 0 });
+      return chapters[0]?.title ?? null;
+    } finally {
+      await browser.close();
+    }
+  };
+
+  test("a share widget's h2 does not beat the chapter h1 outside the block", async () => {
+    // Titles came out "Bagikan ini" (Indonesian for "Share this") because a
+    // heading inside the block won by position while the chapter's own h1 sat
+    // just outside it.
+    const title = await run(`<!doctype html><html><body>
+      <h1>Glutton Berserker ch.7</h1>
+      <div class="entry-content"><p>Body.</p><h2>Bagikan ini</h2></div>
+    </body></html>`);
+    expect(title).toBe("Glutton Berserker ch.7");
+  }, 60_000);
+
+  test("a heading inside the block wins when the ranks are equal", async () => {
+    // The tagline case: the site's header h1 precedes every chapter, so the
+    // chapter's own h1 — inside the block — has to win the tie.
+    const title = await run(`<!doctype html><html><body>
+      <h1>Translating for fun</h1>
+      <div class="entry-content"><h1>Glutton Berserker ch.7</h1><p>Body.</p></div>
+    </body></html>`);
+    expect(title).toBe("Glutton Berserker ch.7");
+  }, 60_000);
+});
