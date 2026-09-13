@@ -8,11 +8,13 @@ import {
   GetCoverResponseSchema,
   LibraryItemSchema,
 } from "./schema";
+import { readEpub } from "../projects/adopt";
 import { HTTPError } from "../../lib/error";
 import { getLibrary, rescanLibrary } from "./context";
 import z from "zod";
 import db from "../../db";
 import fs from "fs/promises";
+import { uuid } from "../../lib/utils";
 import {
   buildValidators,
   contentTypeForName,
@@ -20,6 +22,60 @@ import {
 } from "./file-validators";
 
 const router = new Hono();
+
+// Turn a library book into a project
+router.post(
+  "/adopt",
+  openApi({
+    tags: ["Library"],
+    summary: "Create a project from a library book",
+    request: { json: z.object({ key: z.string().min(1) }) },
+    responses: {
+      200: z.object({ id: z.string(), chapters: z.number() }),
+      404: z.object({ error: z.boolean(), message: z.string() }),
+    },
+  }),
+  async (c) => {
+    const { key } = c.req.valid("json");
+    const item = getLibrary().find((i) => i.key === key && !i.isDirectory);
+    if (!item) throw new HTTPError("Library item not found", { status: 404 });
+
+    const bytes = await Bun.file(item.fullPath).bytes();
+    const book = readEpub(bytes);
+
+    const id = uuid();
+    await db
+      .transaction()
+      .execute(async (trx) => {
+        await trx
+          .insertInto("projects")
+          .values({
+            id,
+            title: book.title || key.replace(/\.[a-z0-9]+$/i, ""),
+            author: book.author ?? "",
+            language: book.language ?? "en",
+            // It owns this file now, so the library can offer its editor.
+            config: JSON.stringify({ exportedKeys: [key] }),
+          })
+          .execute();
+
+        const rows = book.chapters.map((chapter, index) => ({
+          projectId: id,
+          index,
+          title: chapter.title.slice(0, 512),
+          content: chapter.html,
+        }));
+
+        // Batched: a statement per few hundred chapters, not one per chapter.
+        for (let start = 0; start < rows.length; start += 200) {
+          await trx.insertInto("project_chapters").values(rows.slice(start, start + 200)).execute();
+        }
+      });
+
+    return c.var.res({ id, chapters: book.chapters.length });
+  },
+);
+
 
 router.get(
   "/",

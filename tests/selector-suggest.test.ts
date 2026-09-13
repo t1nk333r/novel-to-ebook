@@ -189,3 +189,98 @@ describe("library book to project", () => {
     expect(matchProjectForKey(".epub", projects)).toBeNull();
   });
 });
+
+describe("adopting an EPUB", () => {
+  /** A stored-entry zip, built in code so the test needs no binary fixture. */
+  function makeZip(entries: { name: string; text: string }[]) {
+    const encoder = new TextEncoder();
+    const locals: Uint8Array[] = [];
+    const central: number[] = [];
+    let offset = 0;
+
+    for (const entry of entries) {
+      const name = encoder.encode(entry.name);
+      const data = encoder.encode(entry.text);
+      const local = new Uint8Array(30 + name.length + data.length);
+      const view = new DataView(local.buffer);
+      view.setUint32(0, 0x04034b50, true);
+      view.setUint16(4, 20, true);
+      view.setUint16(8, 0, true); // stored
+      view.setUint32(18, data.length, true);
+      view.setUint32(22, data.length, true);
+      view.setUint16(26, name.length, true);
+      local.set(name, 30);
+      local.set(data, 30 + name.length);
+      locals.push(local);
+
+      const header = new Uint8Array(46 + name.length);
+      const headerView = new DataView(header.buffer);
+      headerView.setUint32(0, 0x02014b50, true);
+      headerView.setUint16(10, 0, true); // stored
+      headerView.setUint32(20, data.length, true);
+      headerView.setUint32(24, data.length, true);
+      headerView.setUint16(28, name.length, true);
+      headerView.setUint32(42, offset, true);
+      header.set(name, 46);
+      central.push(...header);
+      offset += local.length;
+    }
+
+    const centralBytes = new Uint8Array(central);
+    const eocd = new Uint8Array(22);
+    const eocdView = new DataView(eocd.buffer);
+    eocdView.setUint32(0, 0x06054b50, true);
+    eocdView.setUint16(8, entries.length, true);
+    eocdView.setUint16(10, entries.length, true);
+    eocdView.setUint32(12, centralBytes.length, true);
+    eocdView.setUint32(16, offset, true);
+
+    const total = offset + centralBytes.length + eocd.length;
+    const out = new Uint8Array(total);
+    let cursor = 0;
+    for (const part of [...locals, centralBytes, eocd]) {
+      out.set(part, cursor);
+      cursor += part.length;
+    }
+    return out;
+  }
+
+  test("reads spine order, skips the nav, and takes metadata", async () => {
+    const { readEpub } = await import("../src/app/projects/adopt");
+    const book = readEpub(
+      makeZip([
+        { name: "mimetype", text: "application/epub+zip" },
+        { name: "META-INF/container.xml", text: `<container><rootfile full-path="OEBPS/content.opf"/></container>` },
+        {
+          name: "OEBPS/content.opf",
+          text: `<package><metadata><dc:title>Adopted Book</dc:title><dc:creator>Someone</dc:creator><dc:language>ar</dc:language></metadata>
+            <manifest>
+              <item id="nav" href="toc.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+              <item id="c1" href="1_one.xhtml" media-type="application/xhtml+xml"/>
+              <item id="c2" href="2_two.xhtml" media-type="application/xhtml+xml"/>
+            </manifest>
+            <spine><itemref idref="nav"/><itemref idref="c1"/><itemref idref="c2"/></spine></package>`,
+        },
+        { name: "OEBPS/toc.xhtml", text: `<html><body><nav><a href="1_one.xhtml">One</a></nav></body></html>` },
+        { name: "OEBPS/1_one.xhtml", text: `<html><head><title>From Title Tag</title></head><body><h1>Chapter One</h1><p>First.</p></body></html>` },
+        { name: "OEBPS/2_two.xhtml", text: `<html><head><title>Untitled</title></head><body><p>Second, with no heading.</p></body></html>` },
+      ]),
+    );
+
+    expect(book.title).toBe("Adopted Book");
+    expect(book.author).toBe("Someone");
+    expect(book.language).toBe("ar");
+    // The nav is in the spine but is not a chapter.
+    expect(book.chapters.map((chapter) => chapter.title)).toEqual([
+      "Chapter One",
+      "Untitled", // no heading: falls back to the document title
+    ]);
+    expect(book.chapters[0]?.html).toContain("First.");
+    expect(book.chapters[1]?.html).toContain("no heading");
+  });
+
+  test("refuses something that is not an EPUB", async () => {
+    const { readEpub } = await import("../src/app/projects/adopt");
+    expect(() => readEpub(new TextEncoder().encode("not a zip at all"))).toThrow(/zip/);
+  });
+});

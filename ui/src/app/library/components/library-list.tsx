@@ -1,11 +1,12 @@
 import type { BookRelocate } from "@/app/reader/lib/types";
 import OfflineImage from "@/components/offline-image";
-import { API_URL } from "@/lib/api";
+import { $api, API_URL, invalidateQuery } from "@/lib/api";
 import { cn, getRelativeTime } from "@/lib/utils";
 import { useEffect, useMemo, useRef } from "react";
 import { Link, useNavigate } from "react-router";
+import { toast } from "sonner";
 import { BlurhashCanvas } from "react-blurhash";
-import { BookOpenIcon, EyeIcon, PencilIcon, UserIcon } from "lucide-react";
+import { BookOpenIcon, EyeIcon, FilePlus2Icon, PencilIcon, UserIcon } from "lucide-react";
 
 export type LibraryItem = {
   key: string;
@@ -46,11 +47,24 @@ const LibraryList = ({
   projectForKey,
 }: Props) => {
   const navigate = useNavigate();
+  const adopt = $api.useMutation("post", "/library/adopt");
   const scrollRef = useRef<HTMLDivElement>(null!);
   const { mode = "grid", orderBy, sort = 1 } = view || {};
   // In a list row or the horizontal strip the cover box is ~48x64 and clips, so
   // actions go beside the title rather than over the artwork.
   const compact = mode === "list" || Boolean(horizontal);
+
+  const onAdopt = async (item: LibraryItem) => {
+    try {
+      const created = await adopt.mutateAsync({ body: { key: item.key } });
+      invalidateQuery("/library");
+      invalidateQuery("/projects");
+      toast.success(`Project created with ${created.chapters} chapter(s)`);
+      navigate(`/projects/${created.id}`);
+    } catch (error) {
+      toast.error((error as Error).message);
+    }
+  };
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -167,6 +181,22 @@ const LibraryList = ({
               className="absolute z-2 inset-0 w-full h-full object-cover"
             />
 
+            {!project && !item.isDirectory && !compact ? (
+              <button
+                type="button"
+                aria-label={`Create a project from ${item.name}`}
+                title="Create a project from this book"
+                className="absolute z-4 top-1 right-1 rounded border border-border/60 bg-background/90 p-1.5 text-foreground shadow-sm hover:bg-primary hover:text-primary-foreground transition-colors cursor-pointer"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void onAdopt(item);
+                }}
+              >
+                <FilePlus2Icon className="size-4" />
+              </button>
+            ) : null}
+
             {project && !compact ? (
               // Overlaid on the cover in grid view, where there is room.
               <div className="absolute z-4 top-1 right-1 flex items-center gap-1">
@@ -219,8 +249,24 @@ const LibraryList = ({
               {item.metadata?.title || item.name}
             </p>
 
-            {project && compact ? (
+            {(project || (!item.isDirectory && compact)) ? (
               <div className="flex items-center gap-1 mt-1">
+                {!project ? (
+                  <button
+                    type="button"
+                    aria-label={`Create a project from ${item.name}`}
+                    title="Create a project from this book"
+                    className="rounded border border-border/60 bg-background/90 p-1 text-foreground hover:bg-primary hover:text-primary-foreground transition-colors cursor-pointer"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void onAdopt(item);
+                    }}
+                  >
+                    <FilePlus2Icon className="size-3.5" />
+                  </button>
+                ) : null}
+                {project ? (
                 <button
                   type="button"
                   aria-label={`Edit ${item.name}`}
@@ -234,6 +280,7 @@ const LibraryList = ({
                 >
                   <PencilIcon className="size-3.5" />
                 </button>
+                ) : null}
                 <button
                   type="button"
                   aria-label={`Read ${item.name}`}

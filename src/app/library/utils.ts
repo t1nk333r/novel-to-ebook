@@ -65,6 +65,14 @@ export async function scanLibrary(
     const entries = (
       await fs.readdir(p, { recursive: true, withFileTypes: true })
     ).filter((entry) => {
+      // Reading-app metadata, not content: KOReader writes a `.sdr` folder beside
+      // each book it opens, and the library was listing them as browsable items.
+      const parent = (entry as { parentPath?: string; path?: string }).parentPath
+        ?? (entry as { path?: string }).path
+        ?? "";
+      if (`${parent}/${entry.name}`.split("/").some((segment) => segment.toLowerCase().endsWith(".sdr"))) {
+        return false;
+      }
       if (entry.isDirectory()) return true;
       if (entry.isFile()) {
         const ext = entry.name.split(".").pop();
