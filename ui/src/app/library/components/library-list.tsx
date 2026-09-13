@@ -166,25 +166,15 @@ const LibraryList = ({
               className="absolute z-2 inset-0 w-full h-full object-cover"
             />
 
-            {item.location?.fraction && (
-              <div className="absolute z-3 bottom-0 left-0 w-full bg-background/20 flex items-center justify-between">
-                <div
-                  className="bg-green-500 h-0.75"
-                  style={{ width: `${item.location.fraction * 100}%` }}
-                />
-              </div>
-            )}
-          </div>
-
-          {project ? (
-            // Two actions, both visible: edit the project that made this book,
-            // or read it. The card itself opens the project.
-            <div className="absolute z-3 top-1 right-1 flex items-center gap-1">
+            {project ? (
+              // Two actions, both visible: edit the project that made this book,
+              // or read it. The card itself opens the project.
+              <div className="absolute z-4 top-1 right-1 flex items-center gap-1">
               <button
                 type="button"
                 aria-label={`Edit ${item.name}`}
                 title={`Edit ${project.title}`}
-                className="rounded bg-background/70 p-1.5 text-foreground/60 hover:bg-primary hover:text-primary-foreground transition-colors cursor-pointer"
+                className="rounded border border-border/60 bg-background/90 p-1.5 text-foreground shadow-sm hover:bg-primary hover:text-primary-foreground transition-colors cursor-pointer"
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
@@ -197,7 +187,7 @@ const LibraryList = ({
                 type="button"
                 aria-label={`Read ${item.name}`}
                 title={`Read ${item.name}`}
-                className="rounded bg-background/70 p-1.5 text-foreground/60 hover:bg-primary hover:text-primary-foreground transition-colors cursor-pointer"
+                className="rounded border border-border/60 bg-background/90 p-1.5 text-foreground shadow-sm hover:bg-primary hover:text-primary-foreground transition-colors cursor-pointer"
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
@@ -207,7 +197,17 @@ const LibraryList = ({
                 <BookOpenIcon className="size-4" />
               </button>
             </div>
-          ) : null}
+            ) : null}
+
+            {item.location?.fraction && (
+              <div className="absolute z-3 bottom-0 left-0 w-full bg-background/20 flex items-center justify-between">
+                <div
+                  className="bg-green-500 h-0.75"
+                  style={{ width: `${item.location.fraction * 100}%` }}
+                />
+              </div>
+            )}
+          </div>
 
           <div className="flex justify-center items-stretch flex-col">
             <p
