@@ -167,3 +167,25 @@ describe("reader direction", () => {
     expect(ui.isRtl("en")).toBe(false);
   });
 });
+
+describe("library book to project", () => {
+  test("matches by the recorded export key first", async () => {
+    const { matchProjectForKey } = await import("../ui/src/app/library/lib/match-project");
+    const projects = [
+      { id: "a", title: "Some Other Book", config: { exportedKeys: ["Berserk of Gluttony.epub"] } },
+      { id: "b", title: "Berserk of Gluttony", config: null },
+    ];
+    expect(matchProjectForKey("Berserk of Gluttony.epub", projects)?.id).toBe("a");
+  });
+
+  test("falls back to the title, including a re-export's numeric suffix", async () => {
+    const { matchProjectForKey } = await import("../ui/src/app/library/lib/match-project");
+    const projects = [{ id: "p", title: "Endless Path : Infinite Cosmos", config: null }];
+
+    // Books exported before the key was recorded still deserve the link.
+    expect(matchProjectForKey("Endless Path : Infinite Cosmos.epub", projects)?.id).toBe("p");
+    expect(matchProjectForKey("Endless Path : Infinite Cosmos 2.epub", projects)?.id).toBe("p");
+    expect(matchProjectForKey("Some Unrelated Book.epub", projects)).toBeNull();
+    expect(matchProjectForKey(".epub", projects)).toBeNull();
+  });
+});

@@ -3,9 +3,9 @@ import OfflineImage from "@/components/offline-image";
 import { API_URL } from "@/lib/api";
 import { cn, getRelativeTime } from "@/lib/utils";
 import { useEffect, useMemo, useRef } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { BlurhashCanvas } from "react-blurhash";
-import { EyeIcon, UserIcon } from "lucide-react";
+import { BookOpenIcon, EyeIcon, UserIcon } from "lucide-react";
 
 export type LibraryItem = {
   key: string;
@@ -30,9 +30,22 @@ type Props = {
   baseDir?: string | null;
   horizontal?: boolean;
   view?: LibraryView;
+  /**
+   * The project a book came from, if any. Clicking a book then opens the project
+   * — where the chapters, cleanup and export live — instead of only the reader.
+   */
+  projectForKey?: (key: string) => { id: string; title: string } | null;
 };
 
-const LibraryList = ({ items, search, baseDir, horizontal, view }: Props) => {
+const LibraryList = ({
+  items,
+  search,
+  baseDir,
+  horizontal,
+  view,
+  projectForKey,
+}: Props) => {
+  const navigate = useNavigate();
   const scrollRef = useRef<HTMLDivElement>(null!);
   const { mode = "grid", orderBy, sort = 1 } = view || {};
 
@@ -99,13 +112,18 @@ const LibraryList = ({ items, search, baseDir, horizontal, view }: Props) => {
         mode === "list" ? "grid-cols-1 md:grid-cols-2 xl:grid-cols-3" : "",
       )}
     >
-      {filtered?.map((item) => (
+      {filtered?.map((item) => {
+        const project = item.isDirectory ? null : projectForKey?.(item.key) ?? null;
+
+        return (
         <Link
           key={item.key}
           to={
             item.isDirectory
               ? `/?dir=${item.key}`
-              : `/reader/?book=${encodeURIComponent(item.key)}`
+              : project
+                ? `/projects/${project.id}`
+                : `/reader/?book=${encodeURIComponent(item.key)}`
           }
           className={cn(
             "text-foreground p-4 hover:bg-secondary",
@@ -158,6 +176,24 @@ const LibraryList = ({ items, search, baseDir, horizontal, view }: Props) => {
             )}
           </div>
 
+          {project ? (
+            // Reading is one click away, but the project is what a book is *for*
+            // here: it is where the chapters and the export live.
+            <button
+              type="button"
+              aria-label={`Read ${item.name}`}
+              title={`Read (from ${project.title})`}
+              className="absolute z-3 top-1 right-1 rounded bg-background/70 p-1.5 text-foreground/60 hover:bg-primary hover:text-primary-foreground transition-colors cursor-pointer"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                navigate(`/reader/?book=${encodeURIComponent(item.key)}`);
+              }}
+            >
+              <BookOpenIcon className="size-4" />
+            </button>
+          ) : null}
+
           <div className="flex justify-center items-stretch flex-col">
             <p
               className={cn(
@@ -191,7 +227,8 @@ const LibraryList = ({ items, search, baseDir, horizontal, view }: Props) => {
             ) : null}
           </div>
         </Link>
-      ))}
+        );
+      })}
     </div>
   );
 };

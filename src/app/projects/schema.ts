@@ -158,6 +158,9 @@ export const ProjectConfigSchema = z.object({
   // Which chapters an AI cleanup pass has already been over, so a second run
   // costs nothing for work already done. Same column, same reasoning.
   cleanedChapterIds: z.string().array().nullish(),
+  // Library file keys this project has exported, so the library can offer the
+  // way back to the project that produced a book instead of only opening it.
+  exportedKeys: z.string().array().nullish(),
   // Chapters a cleanup pass deliberately left alone (removal cap, provider
   // error). Kept so "clean everything" can be re-run without re-paying for the
   // ones that already came back clean.

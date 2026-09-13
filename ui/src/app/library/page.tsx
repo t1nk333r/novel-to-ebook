@@ -10,7 +10,9 @@ import {
   RefreshCwIcon,
   SearchIcon,
 } from "lucide-react";
+import { $api } from "@/lib/api";
 import { useState } from "react";
+import { matchProjectForKey } from "./lib/match-project";
 import { Link, useSearchParams } from "react-router";
 import { getLibraryTitle } from "./lib/utils";
 import { cn } from "@/lib/utils";
@@ -24,6 +26,11 @@ export default function LibraryPage() {
   const [search, setSearch] = useState("");
   const { data: history } = useHistories();
   const { data: books } = useOfflineApiQuery("get", "/library");
+  // Books belong to projects; the library is where you *see* them, the project is
+  // where you work on them.
+  const { data: projects } = $api.useQuery("get", "/projects");
+  const projectForKey = (key: string) =>
+    matchProjectForKey(key, projects ?? []) as { id: string; title: string } | null;
   const [searchParams] = useSearchParams();
   const [libraryView, setLibraryView] = usePersistedState<LibraryView>(
     "libraryView",
@@ -60,7 +67,7 @@ export default function LibraryPage() {
       {!search && !baseDir && history && history.length > 0 && (
         <>
           <h2 className="font-medium text-xl mx-6 mt-10">Continue Reading</h2>
-          <LibraryList items={history} horizontal />
+          <LibraryList items={history} horizontal projectForKey={projectForKey} />
         </>
       )}
 
@@ -101,6 +108,7 @@ export default function LibraryPage() {
       </div>
 
       <LibraryList
+        projectForKey={projectForKey}
         items={books}
         search={search}
         baseDir={baseDir}

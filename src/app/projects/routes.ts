@@ -323,6 +323,21 @@ router.post(
       fs.writeFileSync(fullPath, epub);
       setTimeout(rescanLibrary, 1000);
 
+      try {
+        const previous = await getProjectConfig(id);
+        const keys = [
+          key,
+          ...(previous.exportedKeys ?? []).filter((value: string) => value !== key),
+        ].slice(0, 20);
+        await updateProjectConfig(id, { exportedKeys: keys });
+      } catch (error) {
+        // The book is written; failing to record where it came from is worth a
+        // warning, not a failed export.
+        console.warn(
+          `export: could not record the exported key — ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+
       return c.var.res({ key });
     } catch (err) {
       throw err;

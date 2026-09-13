@@ -516,6 +516,7 @@ export interface paths {
                                 } | null;
                                 importedChapterIds?: string[] | null;
                                 cleanedChapterIds?: string[] | null;
+                                exportedKeys?: string[] | null;
                                 skippedCleanupChapterIds?: string[] | null;
                             } | null;
                             language: string;
@@ -605,6 +606,7 @@ export interface paths {
                                 } | null;
                                 importedChapterIds?: string[] | null;
                                 cleanedChapterIds?: string[] | null;
+                                exportedKeys?: string[] | null;
                                 skippedCleanupChapterIds?: string[] | null;
                             } | null;
                             language: string;
@@ -640,6 +642,7 @@ export interface paths {
                             } | null;
                             importedChapterIds?: string[] | null;
                             cleanedChapterIds?: string[] | null;
+                            exportedKeys?: string[] | null;
                             skippedCleanupChapterIds?: string[] | null;
                         } | null;
                         language?: string;
@@ -666,6 +669,7 @@ export interface paths {
                                 } | null;
                                 importedChapterIds?: string[] | null;
                                 cleanedChapterIds?: string[] | null;
+                                exportedKeys?: string[] | null;
                                 skippedCleanupChapterIds?: string[] | null;
                             } | null;
                             language: string;
@@ -1321,6 +1325,18 @@ export interface paths {
                             location: unknown;
                             /** Format: date */
                             date: string;
+                        };
+                    };
+                };
+                /** @description 404 Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: boolean;
+                            message: string;
                         };
                     };
                 };
