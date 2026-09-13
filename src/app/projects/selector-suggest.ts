@@ -62,7 +62,14 @@ export function scoreContentSelector(html: string, selectors: string[]): Selecto
     try {
       found = $(selector) as unknown as cheerio.Cheerio<never>;
     } catch {
-      return { matches: 0, characters: 0, share: 0, ok: false, reason: `"${selector}" is not a valid selector` };
+      return {
+        matches: 0,
+        characters: 0,
+        share: 0,
+        linkShare: 0,
+        ok: false,
+        reason: `"${selector}" is not a valid selector`,
+      };
     }
     matches += found.length;
     found.each((_, element) => {
