@@ -1,6 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { isRtl } from "../src/lib/language";
-import { scoreContentSelector, MIN_TEXT_SHARE } from "../src/app/projects/selector-suggest";
+import {
+  MIN_TEXT_SHARE,
+  scoreContentSelector,
+  tightenSelector,
+  MIN_TEXT_SHARE,
+} from "../src/app/projects/selector-suggest";
+
+/** Text an extraction would produce, for assertions about what it excludes. */
+function coverage(html: string, selector: string) {
+  const { load } = require("cheerio") as typeof import("cheerio");
+  const $ = load(html);
+  return $(selector).text().replace(/\s+/g, " ").trim();
+}
 import { cleanImportedTitle } from "../src/app/projects/book-import";
 
 /**
@@ -77,5 +89,48 @@ describe("Arabic catalogue titles", () => {
 
   test("leaves an Arabic title alone when there is no timestamp", () => {
     expect(cleanImportedTitle("الفصل الأول: البداية")).toBe("الفصل الأول: البداية");
+  });
+});
+
+describe("tightenSelector", () => {
+  const WRAPPED = `<!doctype html><html><body>
+    <div id="content">
+      <header><h1>Translating for fun</h1></header>
+      <div class="entry-content">
+        ${Array.from({ length: 30 }, (_, i) => `<p>Sentence ${i} of the actual chapter, long enough to dominate its parent.</p>`).join("")}
+      </div>
+    </div>
+  </body></html>`;
+
+  test("descends past the page wrapper to the chapter itself", () => {
+    // The failure this fixes: #content contains the site header, so the nearest
+    // heading before the extraction is the site's tagline — and every chapter in
+    // the book gets it as a title.
+    const tightened = tightenSelector(WRAPPED, "#content");
+    expect(tightened).not.toBe("#content");
+    expect(tightened).toContain("entry-content");
+
+    const score = scoreContentSelector(WRAPPED, [tightened]);
+    expect(score.ok).toBe(true);
+    // The site's tagline is outside the tightened extraction.
+    expect(coverage(WRAPPED, tightened)).not.toContain("Translating for fun");
+  });
+
+  test("stops at the body when its children are the paragraphs", () => {
+    const plain = `<div id="c"><p>one</p><p>two</p><p>three</p></div>`;
+    expect(tightenSelector(plain, "#c")).toBe("#c");
+  });
+});
+
+describe("link-dominated extractions", () => {
+  test("a list of chapter links is not a chapter", () => {
+    const list = `<!doctype html><html><body><div class="index">${Array.from(
+      { length: 60 },
+      (_, i) => `<a href="/c${i}">Chapter ${i} — an unusually long link label so the list is a large share of the page</a>`,
+    ).join("")}</div></body></html>`;
+
+    const score = scoreContentSelector(list, [".index"]);
+    expect(score.ok).toBe(false);
+    expect(score.reason).toMatch(/links/);
   });
 });

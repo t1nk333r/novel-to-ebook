@@ -29,9 +29,17 @@ export type SelectorScore = {
   matches: number;
   characters: number;
   share: number;
+  /** Share of the extraction that sits inside <a>. Navigation is mostly links. */
+  linkShare: number;
   ok: boolean;
   reason: string;
 };
+
+/**
+ * Above this, the "chapter" is a list of links. The share test alone cannot see
+ * it: a page of chapter links can easily be a quarter of the page's text.
+ */
+export const MAX_LINK_SHARE = 0.4;
 
 export function scoreContentSelector(html: string, selectors: string[]): SelectorScore {
   const $ = cheerio.load(html);
@@ -42,8 +50,10 @@ export function scoreContentSelector(html: string, selectors: string[]): Selecto
 
   let matches = 0;
   let characters = 0;
+  let linkCharacters = 0;
   const seen = new Set<string>();
   let text = "";
+  let linkText = "";
 
   for (const selector of selectors) {
     if (!selector.trim() || seen.has(selector)) continue;
@@ -56,36 +66,47 @@ export function scoreContentSelector(html: string, selectors: string[]): Selecto
     }
     matches += found.length;
     found.each((_, element) => {
-      text += " " + clean($(element).text());
+      const $element = $(element);
+      text += " " + clean($element.text());
+      linkText += " " + clean($element.find("a").text());
     });
   }
 
   characters = clean(text).length;
   const share = bodyChars > 0 ? characters / bodyChars : 0;
+  const linkShare = characters > 0 ? clean(linkText).length / characters : 0;
+  const fail = (reason: string): SelectorScore => ({
+    matches,
+    characters,
+    share,
+    linkShare,
+    ok: false,
+    reason,
+  });
 
-  if (matches === 0) {
-    return { matches, characters, share, ok: false, reason: "matches nothing on the page" };
-  }
+  if (matches === 0) return fail("matches nothing on the page");
   if (characters < MIN_EXTRACTED_CHARS) {
-    return {
-      matches,
-      characters,
-      share,
-      ok: false,
-      reason: `extracts only ${characters} characters — too little to be a chapter`,
-    };
+    return fail(`extracts only ${characters} characters — too little to be a chapter`);
   }
   if (share < MIN_TEXT_SHARE) {
-    return {
-      matches,
-      characters,
-      share,
-      ok: false,
-      reason: `extracts ${Math.round(share * 100)}% of the page's text — that looks like navigation, not the chapter`,
-    };
+    return fail(
+      `extracts ${Math.round(share * 100)}% of the page's text — that looks like navigation, not the chapter`,
+    );
+  }
+  if (linkShare > MAX_LINK_SHARE) {
+    return fail(
+      `${Math.round(linkShare * 100)}% of the extraction is links — that is a chapter list, not a chapter`,
+    );
   }
 
-  return { matches, characters, share, ok: true, reason: `${characters} characters, ${Math.round(share * 100)}% of the page` };
+  return {
+    matches,
+    characters,
+    share,
+    linkShare,
+    ok: true,
+    reason: `${characters} characters, ${Math.round(share * 100)}% of the page, ${Math.round(linkShare * 100)}% links`,
+  };
 }
 
 function decodeEntities(text: string) {
@@ -99,6 +120,67 @@ function decodeEntities(text: string) {
       const value = Number(code);
       return value > 0 && value <= 0x10ffff ? String.fromCodePoint(value) : whole;
     });
+}
+
+/**
+ * Descend from a candidate to the child that holds most of its text.
+ *
+ * The heuristic answers with the wrapper that dominates the *page* — on a
+ * WordPress serial that was `div#content`, 91% of the page, which also contains
+ * the site header. Chapter titles are read from the nearest heading before the
+ * extracted element, so a superset makes every chapter in the book carry the
+ * site's tagline as its title. The dominant child is the chapter itself.
+ */
+export function tightenSelector(html: string, selector: string): string {
+  const $ = cheerio.load(html);
+  const clean = (value: string) => decodeEntities(value.replace(/<[^>]*>/g, " ")).replace(/\s+/g, " ").trim();
+
+  let current = $(selector).first();
+  if (!current.length) return selector;
+
+  for (let depth = 0; depth < 6; depth++) {
+    const own = clean(current.text()).length;
+    if (own === 0) break;
+
+    let best: cheerio.Cheerio<never> | null = null;
+    let bestSize = 0;
+    current.children().each((_, child) => {
+      const size = clean($(child).text()).length;
+      if (size > bestSize) {
+        bestSize = size;
+        best = $(child) as unknown as cheerio.Cheerio<never>;
+      }
+    });
+
+    // Only descend when one child really does hold the parent's text; otherwise
+    // the parent is the body and its children are the paragraphs.
+    if (!best || bestSize / own < 0.8) break;
+    current = best;
+  }
+
+  const element = current.get(0);
+  if (!element) return selector;
+
+  // No `CSS.escape` here: this runs on the server, where it does not exist.
+  // Identifiers from real pages are matched directly, and anything odd falls
+  // through to the tag or the caller's selector — never to a broken selector.
+  const usableIdent = (value: string | undefined): value is string =>
+    typeof value === "string" && /^[A-Za-z_][\w-]*$/.test(value);
+
+  const candidate = (() => {
+    const id = $(element).attr("id");
+    if (usableIdent(id) && $(`#${id}`).length === 1) return `#${id}`;
+
+    const tag = (element as { tagName?: string }).tagName?.toLowerCase();
+    const className = ($(element).attr("class") ?? "").trim().split(/\s+/)[0];
+    if (usableIdent(className)) {
+      const byClass = `${tag}.${className}`;
+      if ($(byClass).length >= 1) return byClass;
+    }
+    return tag ?? selector;
+  })();
+
+  return candidate;
 }
 
 export type SuggestedSelector = {
@@ -120,8 +202,15 @@ export async function suggestContentSelector(
 ): Promise<SuggestedSelector | null> {
   const heuristic = findContentSelector(html)?.selector;
   if (heuristic) {
-    const score = scoreContentSelector(html, [heuristic]);
-    if (score.ok) return { selector: heuristic, source: "heuristic", score };
+    // Tighten first: a superset passes the share test but drags the page's
+    // chrome into every chapter of the book.
+    const tightened = tightenSelector(html, heuristic);
+    const options = tightened === heuristic ? [heuristic] : [tightened, heuristic];
+
+    for (const candidate of options) {
+      const score = scoreContentSelector(html, [candidate]);
+      if (score.ok) return { selector: candidate, source: "heuristic", score };
+    }
   }
 
   if (options.useModel === false) return null;
