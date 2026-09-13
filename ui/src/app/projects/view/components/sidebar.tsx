@@ -16,11 +16,20 @@ import { useProjectContext } from "../lib/context";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { projectDetailsSchema } from "../lib/schema";
+import { useArmedDelete } from "@/hooks/use-armed-delete";
+import { isRtl, LANGUAGES } from "@/lib/language";
 import { useDeleteChapter, useUpdateProject } from "../lib/hooks";
 import { toast } from "sonner";
 import { addChapterModal } from "./add-chapter-modal";
 import { $api } from "@/lib/api";
 import { Separator } from "@/components/ui/separator";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useNavigate } from "react-router";
 import ChapterImportProgress from "./import-progress";
 import ChapterList from "./chapter-list";
@@ -57,7 +66,7 @@ export default function Sidebar() {
   }, [curTab]);
 
   return (
-    <div className="flex flex-col items-stretch overflow-hidden border-r w-80">
+    <div className="flex flex-col items-stretch overflow-hidden border-r w-full sm:w-80">
       <div className="bg-secondary border-b h-12 flex items-center pl-4 pr-2">
         <p className="text-sm font-medium flex-1 truncate mr-2">
           {project?.title}
@@ -103,15 +112,15 @@ function TableOfContents() {
     { params: { path: { projectId: project.id } } },
   );
   const deleteChapter = useDeleteChapter(project.id);
+  const armedDelete = useArmedDelete();
 
   const onDelete = (id: number) => {
-    if (!confirm("Are you sure you want to delete this chapter?")) return;
-    deleteChapter(id);
+    armedDelete.confirmThen(String(id), () => deleteChapter(id));
   };
 
   const onRemoveAllChapters = () => {
-    if (!confirm("Are you sure you want to delete all chapter?")) return;
-    chapters?.forEach((c) => deleteChapter(c.id));
+    // Two presses: the first arms, the second deletes. See useArmedDelete.
+    armedDelete.confirmThen("all", () => chapters?.forEach((c) => deleteChapter(c.id)));
   };
 
   return (
@@ -128,9 +137,19 @@ function TableOfContents() {
         </Button>
         <div className="flex-1" />
         <Button
-          variant="ghost"
+          variant={armedDelete.armed === "all" ? "destructive" : "ghost"}
           size="sm"
           className="mx-1"
+          aria-label={
+            armedDelete.armed === "all"
+              ? "Press again to delete every chapter"
+              : "Delete all chapters"
+          }
+          title={
+            armedDelete.armed === "all"
+              ? "Press again to delete every chapter"
+              : "Delete all chapters"
+          }
           onClick={onRemoveAllChapters}
         >
           <Trash2Icon />
@@ -138,7 +157,7 @@ function TableOfContents() {
       </div>
 
       <div className="border-t mt-1 flex flex-col items-stretch py-1">
-        <ChapterList chapters={chapters || []} onDelete={onDelete} />
+        <ChapterList chapters={chapters || []} onDelete={onDelete} armedId={armedDelete.armed} />
         <ChapterImportProgress />
       </div>
     </div>
@@ -213,9 +232,26 @@ function ProjectDetails() {
       </Field>
       <Field>
         <FieldLabel>Language</FieldLabel>
-        <InputGroup>
-          <InputGroupInput placeholder="en" {...form.register("language")} />
-        </InputGroup>
+        <Select
+          value={form.watch("language") || "en"}
+          onValueChange={(value) => form.setValue("language", value, { shouldDirty: true })}
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder="en" />
+          </SelectTrigger>
+          <SelectContent>
+            {LANGUAGES.map((language) => (
+              <SelectItem key={language.code} value={language.code}>
+                {language.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {isRtl(form.watch("language")) ? (
+          <FieldDescription>
+            Right-to-left: the exported EPUB lays out from the right and pages that way.
+          </FieldDescription>
+        ) : null}
       </Field>
 
       <Separator className="mt-16" />

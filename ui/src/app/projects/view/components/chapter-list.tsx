@@ -20,9 +20,11 @@ type Chapter = JsonRes<"/projects/{projectId}/chapters", "get">[number];
 type Props = {
   chapters: Chapter[];
   onDelete: (id: number) => void;
+  /** The row currently armed for a second press, from useArmedDelete. */
+  armedId?: string | null;
 };
 
-export default function ChapterList({ chapters, onDelete }: Props) {
+export default function ChapterList({ chapters, onDelete, armedId }: Props) {
   const projectId = useProjectContext().project.id;
   const reorder = $api.useMutation(
     "put",
@@ -55,7 +57,7 @@ export default function ChapterList({ chapters, onDelete }: Props) {
       )}
 
       {chapters.map((c, idx) => (
-        <ChapterItem key={c.id} data={c} index={idx} onDelete={onDelete} />
+        <ChapterItem key={c.id} data={c} index={idx} onDelete={onDelete} armed={armedId === String(c.id)} />
       ))}
     </DragDropProvider>
   );
@@ -65,10 +67,12 @@ function ChapterItem({
   data: c,
   index,
   onDelete,
+  armed,
 }: {
   data: Chapter;
   index: number;
   onDelete: Props["onDelete"];
+  armed?: boolean;
 }) {
   const handleRef = useRef<HTMLButtonElement | null>(null);
   const { ref } = useSortable({ id: c.id, index, handle: handleRef });
@@ -93,9 +97,13 @@ function ChapterItem({
         <PencilIcon />
       </Button>
       <Button
-        variant="ghost"
+        variant={armed ? "destructive" : "ghost"}
         size="icon-sm"
-        className="rounded-none hidden group-hover:flex"
+        // Visible without hover on a phone, where there is no hover at all — the
+        // control was unreachable on touch screens.
+        className="rounded-none hidden group-hover:flex max-sm:flex"
+        aria-label={armed ? "Press again to delete this chapter" : "Delete this chapter"}
+        title={armed ? "Press again to delete this chapter" : "Delete this chapter"}
         onClick={() => onDelete(c.id)}
       >
         <TrashIcon />
