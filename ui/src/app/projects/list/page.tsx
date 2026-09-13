@@ -4,8 +4,8 @@ import {
   InputGroupAddon,
   InputGroupInput,
 } from "@/components/ui/input-group";
-import { $api } from "@/lib/api";
-import { ArrowLeftIcon, PlusIcon, SearchIcon } from "lucide-react";
+import { $api, invalidateQuery } from "@/lib/api";
+import { ArrowLeftIcon, PlusIcon, SearchIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -14,7 +14,29 @@ export default function ProjectListPage() {
   const [search, setSearch] = useState("");
   const { data: projects } = $api.useQuery("get", "/projects");
   const create = $api.useMutation("post", "/projects");
+  const remove = $api.useMutation("delete", "/projects/{id}");
   const navigate = useNavigate();
+
+  const onDeleteProject = (id: string, title: string) => {
+    // Deleting a project takes its chapters with it, and there is no undo, so
+    // this asks — same pattern the chapter list uses for the same reason.
+    if (!confirm(`Delete "${title}"? Its chapters are deleted with it, and this cannot be undone.`)) {
+      return;
+    }
+
+    remove.mutate(
+      { params: { path: { id } } },
+      {
+        onSuccess() {
+          invalidateQuery("/projects");
+          toast.success("Project deleted");
+        },
+        onError(err) {
+          toast.error((err as Error).message);
+        },
+      },
+    );
+  };
 
   const onCreateProject = () => {
     create.mutate(
@@ -85,6 +107,22 @@ export default function ProjectListPage() {
                   }}
                 />
               ) : null}
+
+              <button
+                type="button"
+                aria-label={`Delete ${project.title}`}
+                title="Delete project"
+                className="absolute z-2 top-1 right-1 rounded bg-background/80 p-1.5 opacity-0 hover:bg-destructive hover:text-white transition-opacity group-hover:opacity-100 focus-visible:opacity-100 cursor-pointer"
+                onClick={(event) => {
+                  // The card is a link; without this, deleting also navigates.
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onDeleteProject(project.id, project.title);
+                }}
+                disabled={remove.isPending}
+              >
+                <Trash2Icon className="size-4" />
+              </button>
             </div>
 
             <div className="line-clamp-2 mt-2 text-xs font-medium">
