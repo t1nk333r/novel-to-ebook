@@ -25,9 +25,6 @@ export type ChapterBlocks = {
 
 export const DEFAULT_CLEAN_MODEL = "mistral-small-latest";
 
-/** How many blocks at each edge are offered to the model. */
-const EDGE_BLOCKS = 12;
-
 /** A drop larger than this share of the chapter's text is refused outright. */
 export const DEFAULT_MAX_REMOVAL_SHARE = 0.3;
 
@@ -112,7 +109,20 @@ function decodeEntities(text: string): string {
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")
     .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'");
+    // Numeric forms matter here, not just the named ones: a span the model
+    // copied from decoded text has to be found in a block holding `&#8217;`.
+    .replace(/&#(\d+);/g, (whole, code: string) => {
+      const value = Number(code);
+      return Number.isFinite(value) && value > 0 && value <= 0x10ffff
+        ? String.fromCodePoint(value)
+        : whole;
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (whole, code: string) => {
+      const value = Number.parseInt(code, 16);
+      return Number.isFinite(value) && value > 0 && value <= 0x10ffff
+        ? String.fromCodePoint(value)
+        : whole;
+    });
 }
 
 /**
@@ -153,33 +163,30 @@ export function deterministicJunk({ blocks }: ChapterBlocks): number[] {
 }
 
 /**
- * The blocks the model is asked about: the edges only. Junk is appended and
- * prepended in every sample seen, and restricting the question means a confused
- * answer cannot reach the middle of a chapter.
+ * The blocks the model is asked about.
+ *
+ * This started as the edges only, on the theory that furniture lives at the ends.
+ * Measuring the real corpus disproved it: Webnovel drops `(A/N: …)` notes in the
+ * middle of chapters, and those survived — 223 of them in one book. So the whole
+ * chapter is offered, and the guards (never rewrite prose, removal cap, verbatim
+ * spans) are what keep a confident model from amputating a chapter, not a narrow
+ * question.
  */
 export function cleanupCandidates({ blocks }: ChapterBlocks, alreadyJunk: number[] = []) {
-  const keep = (index: number) => !alreadyJunk.includes(index);
-
-  const head = blocks
-    .map((_, index) => index)
-    .slice(0, EDGE_BLOCKS)
-    .filter(keep);
-  const tailStart = Math.max(0, blocks.length - EDGE_BLOCKS);
-  const tail = blocks
-    .map((_, index) => index)
-    .slice(tailStart)
-    .filter(keep);
-
-  return [...new Set([...head, ...tail])].sort((a, b) => a - b);
+  return blocks.map((_, index) => index).filter((index) => !alreadyJunk.includes(index));
 }
 
+/** Blocks listed per request. Long chapters are covered; nothing is silently dropped. */
+const MAX_LISTED_BLOCKS = 160;
+
 export function buildCleanupMessages(chapterTitle: string, blocks: ChapterBlocks, candidates: number[]) {
-  const listing = candidates
+  const listed = candidates.slice(0, MAX_LISTED_BLOCKS);
+  const listing = listed
     .map((index) => {
       const text = decodeEntities(blocks.blocks[index]!.replace(/<[^>]*>/g, " "))
         .replace(/\s+/g, " ")
         .trim()
-        .slice(0, 300);
+        .slice(0, 400);
       return `[${index}] (${visibleLength(blocks.blocks[index]!).toString()} chars) ${text || "(empty)"}`;
     })
     .join("\n");
@@ -188,19 +195,141 @@ export function buildCleanupMessages(chapterTitle: string, blocks: ChapterBlocks
     {
       role: "user",
       text:
-        "You are cleaning a translated web novel chapter before it is published as an ebook. " +
-        "Below are blocks from the start and end of one chapter, each with an index. " +
-        "Decide which blocks are NOT part of the story and must be removed: separator lines, " +
-        "the translator's or scanlator's notes, requests to join Patreon/Discord, 'read ahead' " +
-        "advertising, video or embed placeholders, site or comment-box furniture. " +
-        "Keep every block that is narration, dialogue, or a chapter heading — when in doubt, keep it. " +
-        'Reply with JSON only: {"remove": [indices], "reason": "one short sentence"}\n\n' +
+        "You are cleaning a translated web novel chapter before it is published as an ebook.\n" +
+        "Below is the chapter, block by block, each with an index.\n\n" +
+        "Remove what is NOT the story: separator lines, the translator's or scanlator's notes " +
+        "(anything like `(A/N: ...)`, `Translator:`, `Editor:`, chapter-schedule and 'read ahead' " +
+        "advertising), requests to join Patreon/Discord/Ko-fi, funding links (paypal.me, " +
+        "patreon.com, ko-fi.com, discord.gg), video or embed placeholders, and site or comment-box " +
+        "furniture.\n" +
+        "Keep every block that is narration, dialogue, or a chapter heading — when in doubt, keep it.\n\n" +
+        "Two ways to remove something:\n" +
+        '  - "remove": whole block indices, for anything that is furniture end to end.\n' +
+        '  - "removeSpans": exact strings copied *character for character* from inside a block, for a ' +
+        "note attached to the end of a paragraph. The string must appear verbatim in the text below, " +
+        "or it will be ignored. Never paraphrase, never include the story text around it, and never " +
+        "retype punctuation — copy and paste it.\n\n" +
+        'Reply with JSON only: {"remove": [indices], "removeSpans": ["exact text"], "reason": "one short sentence"}\n\n' +
         `Chapter: ${chapterTitle}\n\n${listing}`,
     },
   ];
 }
 
-export type CleanupDecision = { drop: number[]; reason: string; source: "ai" | "deterministic" };
+export type CleanupDecision = {
+  drop: number[];
+  /** Exact substrings to cut out of retained blocks, as returned by the model. */
+  spans: string[];
+  reason: string;
+  source: "ai" | "deterministic";
+};
+
+/** A span longer than this is treated as an attempt to rewrite a chapter. */
+const MAX_SPAN_LENGTH = 400;
+const MAX_SPANS = 25;
+
+/**
+ * Decoded-text offsets for one block, so a span the model copied from *text* can
+ * be cut out of *HTML* without disturbing anything around it.
+ *
+ * Each entry records where in the HTML the character starts and how many HTML
+ * characters produced it, which is what makes entity-decoded text (`&#8217;`)
+ * map back to the right region.
+ */
+function textOffsets(html: string) {
+  const starts: number[] = [];
+  const lengths: number[] = [];
+  let text = "";
+  let index = 0;
+
+  while (index < html.length) {
+    const character = html[index]!;
+
+    if (character === "<") {
+      const close = html.indexOf(">", index);
+      index = close === -1 ? html.length : close + 1;
+      continue;
+    }
+
+    if (character === "&") {
+      const entity = /^&(#\d+|#x[0-9a-f]+|[a-z]+);/i.exec(html.slice(index, index + 12));
+      if (entity) {
+        const decoded = decodeEntities(entity[0]);
+        for (let i = 0; i < decoded.length; i++) {
+          starts.push(index);
+          lengths.push(entity[0].length);
+        }
+        text += decoded;
+        index += entity[0].length;
+        continue;
+      }
+    }
+
+    starts.push(index);
+    lengths.push(1);
+    text += character;
+    index += 1;
+  }
+
+  return { text, starts, lengths };
+}
+
+/**
+ * Cut exact substrings out of a block, leaving every other character untouched.
+ *
+ * This is the only path by which cleanup touches content *inside* a block, and it
+ * is deliberately literal: a span that is not found verbatim is skipped, never
+ * fuzzy-matched. A model that paraphrases therefore removes nothing rather than
+ * rewriting a sentence.
+ */
+export function removeVerbatimSpans(html: string, spans: string[]) {
+  const offsets = textOffsets(html);
+  let text = offsets.text;
+  let result = html;
+  let removed = 0;
+
+  for (const span of spans) {
+    if (!span || span.length > MAX_SPAN_LENGTH) continue;
+
+    const at = text.indexOf(span);
+    if (at === -1) continue;
+
+    const from = offsets.starts[at]!;
+    const last = at + span.length - 1;
+    const to = offsets.starts[last]! + offsets.lengths[last]!;
+
+    result = result.slice(0, from) + result.slice(to);
+    // Keep the two views in step for the next span.
+    text = text.slice(0, at) + text.slice(at + span.length);
+    const step = to - from;
+    for (let i = at; i < offsets.starts.length - span.length; i++) {
+      offsets.starts[i] = offsets.starts[i + span.length]! - step;
+      offsets.lengths[i] = offsets.lengths[i + span.length]!;
+    }
+    offsets.starts.length = Math.max(0, offsets.starts.length - span.length);
+    offsets.lengths.length = offsets.starts.length;
+    removed += 1;
+  }
+
+  return { html: result, removed };
+}
+
+/**
+ * Is `text` obtainable from `source` by deleting characters only?
+ *
+ * Exported because it is the invariant the whole pass rests on: the model
+ * chooses what to drop, never what to write.
+ */
+export function isSubsequence(text: string, source: string) {
+  let cursor = 0;
+  for (let i = 0; i < text.length; i++) {
+    cursor = source.indexOf(text[i]!, cursor);
+    if (cursor === -1) return false;
+    cursor += 1;
+  }
+  return true;
+}
+
+export { MAX_SPAN_LENGTH, MAX_SPANS, textOffsets };
 
 /**
  * Apply a decision, or refuse it.
@@ -212,35 +341,60 @@ export function applyCleanup(
   blocks: ChapterBlocks,
   drop: number[],
   maxRemovalShare = DEFAULT_MAX_REMOVAL_SHARE,
-): { html: string; dropped: number[]; refused: string | null } {
+  spans: string[] = [],
+): { html: string; dropped: number[]; spans: number; refused: string | null } {
   const total = blocks.sizes.reduce((sum, size) => sum + size, 0);
   const valid = [...new Set(drop)].filter(
     (index) => Number.isInteger(index) && index >= 0 && index < blocks.blocks.length,
   );
 
-  const dropped = valid.reduce((sum, index) => sum + (blocks.sizes[index] ?? 0), 0);
+  // Apply the spans first: they are inside blocks, so their contribution to the
+  // cap has to be counted before deciding whether the whole answer is allowed.
+  let spanCharacters = 0;
+  const withSpans = blocks.blocks.map((block, index) => {
+    if (valid.includes(index) || spans.length === 0) return block;
+    const applied = removeVerbatimSpans(block, spans);
+    if (applied.removed > 0) {
+      spanCharacters += visibleLength(block) - visibleLength(applied.html);
+    }
+    return applied.html;
+  });
+
+  const dropped =
+    valid.reduce((sum, index) => sum + (blocks.sizes[index] ?? 0), 0) + spanCharacters;
   if (total > 0 && dropped / total > maxRemovalShare) {
     const share = Math.round((dropped / total) * 100);
     return {
       html: blocks.blocks.join(""),
       dropped: [],
+      spans: 0,
       refused: `would remove ${share}% of the chapter (cap ${Math.round(maxRemovalShare * 100)}%)`,
     };
   }
 
   const remove = new Set(valid);
-  const kept = blocks.blocks.filter((_, index) => !remove.has(index));
+  const kept = withSpans.filter((_, index) => !remove.has(index));
+  const html = kept.join("");
 
-  // Belt and braces: what is written must be built from the original blocks
-  // verbatim. If that ever stops holding, refuse rather than write.
-  const original = blocks.blocks.join("");
-  for (const block of kept) {
-    if (!original.includes(block)) {
-      return { html: original, dropped: [], refused: "a retained block was not byte-identical" };
-    }
+  // Belt and braces, and the whole safety claim in one line: what gets written
+  // must be a character-level subsequence of what was read. Deleting blocks and
+  // cutting spans both preserve that; anything the model *wrote* would not. A
+  // substring check cannot express this once spans are cut out of a block.
+  if (!isSubsequence(html, blocks.blocks.join(""))) {
+    return {
+      html: blocks.blocks.join(""),
+      dropped: [],
+      spans: 0,
+      refused: "the result would not be a subsequence of the original chapter",
+    };
   }
 
-  return { html: kept.join(""), dropped: valid, refused: null };
+  return {
+    html,
+    dropped: valid,
+    spans: withSpans.some((block, index) => block !== blocks.blocks[index]) ? 1 : 0,
+    refused: null,
+  };
 }
 
 /**
@@ -292,6 +446,7 @@ export async function decideCleanupWithMistral(
 
   const parsed = JSON.parse(content.replace(/^```(?:json)?|```$/gm, "").trim()) as {
     remove?: unknown;
+    removeSpans?: unknown;
     reason?: unknown;
   };
 
@@ -302,7 +457,94 @@ export async function decideCleanupWithMistral(
         .filter((index) => allowed.has(index))
     : [];
 
-  return { drop, reason: typeof parsed.reason === "string" ? parsed.reason.slice(0, 200) : "", source: "ai" };
+  const spans = Array.isArray(parsed.removeSpans)
+    ? parsed.removeSpans
+        .filter((value): value is string => typeof value === "string")
+        .filter((value) => value.trim().length > 0 && value.length <= MAX_SPAN_LENGTH)
+        .slice(0, MAX_SPANS)
+    : [];
+
+  return {
+    drop,
+    spans,
+    reason: typeof parsed.reason === "string" ? parsed.reason.slice(0, 200) : "",
+    source: "ai",
+  };
+}
+
+/**
+ * Does this chapter still contain publisher furniture?
+ *
+ * The cleanup ledger records what has been *attempted*, not what is clean — a
+ * chapter refused by the removal cap, or one whose note sits inside a paragraph,
+ * is marked done and would never be reconsidered. This asks the text instead, so
+ * a better pass (or a re-run) picks up exactly the chapters that still show
+ * signs of it.
+ */
+const FURNITURE_SIGNAL =
+  /(\(A\/N[:)]|translator\s*:|editor\s*:|patreon\.com|paypal\.me|ko-?fi\.com|discord\.gg|read ahead|advanced chapters)/i;
+
+export function hasFurniture(html: string | null | undefined) {
+  return FURNITURE_SIGNAL.test(html ?? "");
+}
+
+/**
+ * Story chapter, or an announcement dressed as one? Used to decide whether a
+ * "chapter" that is 100% notes belongs in the book at all — the cap refuses to
+ * empty it, which is right, but leaves it as a chapter made of nothing.
+ */
+export async function classifyChapterWithMistral(
+  title: string,
+  excerpt: string,
+  config: { apiKey: string; model?: string },
+): Promise<{ story: boolean; reason: string }> {
+  const model = config.model?.trim() || DEFAULT_CLEAN_MODEL;
+
+  const response = await aiExecutor.run(() =>
+    fetch("https://api.mistral.ai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: "user",
+            content:
+              "This is a chapter of a translated web novel. Decide whether it contains story " +
+              "(narration, dialogue, or a scene) or whether it is only an announcement, notice, " +
+              "schedule update, or author's afterword dressed up as a chapter. " +
+              'Reply with JSON only: {"story": true|false, "reason": "one short sentence"}.\n\n' +
+              `Title: ${title}\n\n${excerpt.slice(0, 1500)}`,
+          },
+        ],
+        response_format: { type: "json_object" },
+        stream: false,
+        temperature: 0,
+      }),
+      signal: AbortSignal.timeout(limits.aiRequestTimeoutMs),
+    }),
+  );
+
+  if (!response.ok) {
+    throw new Error(`Mistral classification failed with ${response.status} from model ${model}`);
+  }
+
+  const payload = (await response.json()) as { choices?: { message?: { content?: string } }[] };
+  const content = payload?.choices?.[0]?.message?.content;
+  if (!content) throw new Error(`Mistral returned no message content from ${model}`);
+
+  const parsed = JSON.parse(content.replace(/^```(?:json)?|```$/gm, "").trim()) as {
+    story?: unknown;
+    reason?: unknown;
+  };
+
+  return {
+    story: parsed.story !== false,
+    reason: typeof parsed.reason === "string" ? parsed.reason.slice(0, 200) : "",
+  };
 }
 
 /** The model a cleanup run uses, from the environment. */

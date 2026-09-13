@@ -6,6 +6,7 @@ import {
   cleanupModelFromEnv,
   decideCleanupWithMistral,
   deterministicJunk,
+  hasFurniture,
   splitChapterBlocks,
   type ChapterBlocks,
 } from "../../../lib/chapter-clean";
@@ -52,7 +53,13 @@ export function queueCleanChapters(payload: {
 
     const config = await getProjectConfig(projectId);
     const alreadyCleaned = new Set(config.cleanedChapterIds ?? []);
-    const pending = chapters.filter((chapter) => !alreadyCleaned.has(String(chapter.id)));
+    // "Cleaned" records an attempt, not a guarantee: a chapter refused by the
+    // removal cap, or one whose note sits inside a paragraph, is still dirty and
+    // must be offered again — otherwise a better pass can never reach it.
+    const pending = chapters.filter(
+      (chapter) =>
+        !alreadyCleaned.has(String(chapter.id)) || hasFurniture(chapter.content),
+    );
     const limit = maxChapters ?? pending.length;
     const batch = pending.slice(0, limit);
 
@@ -91,6 +98,7 @@ export function queueCleanChapters(payload: {
         const candidates = cleanupCandidates(blocks, certain);
 
         let drop = certain;
+        let spans: string[] = [];
         let refused: string | null = null;
 
         if (useAi && candidates.length > 0) {
@@ -99,9 +107,10 @@ export function queueCleanChapters(payload: {
             model,
           });
           drop = [...certain, ...decision.drop];
+          spans = decision.spans;
         }
 
-        const applied = applyCleanup(blocks, drop);
+        const applied = applyCleanup(blocks, drop, undefined, spans);
         refused = applied.refused;
 
         if (refused) {
@@ -119,7 +128,7 @@ export function queueCleanChapters(payload: {
 
         if (!refused) {
           report.cleaned++;
-          report.removed += applied.dropped.length;
+          report.removed += applied.dropped.length + applied.spans;
         }
 
         if (!dryRun && !refused) {
@@ -136,7 +145,7 @@ export function queueCleanChapters(payload: {
 
       ctx.setProgress(
         ((position + 1) / batch.length) * 100,
-        `${report.cleaned} cleaned, ${report.removed} block(s) removed` +
+        `${report.cleaned} cleaned, ${report.removed} removal(s)` +
           (report.refused ? `, ${report.refused} refused` : "") +
           (report.skipped ? `, ${report.skipped} skipped` : ""),
       );
@@ -145,9 +154,9 @@ export function queueCleanChapters(payload: {
     ctx.setProgress(
       100,
       `${dryRun ? "Would clean" : "Cleaned"} ${report.cleaned}/${report.chapters} chapter(s), ` +
-        `${report.removed} block(s) removed` +
+        `${report.removed} removal(s)` +
         (report.refused ? `, ${report.refused} refused by the removal cap` : "") +
         (report.skipped ? `, ${report.skipped} skipped` : ""),
     );
-  });
+  }, { namespace: projectId });
 }

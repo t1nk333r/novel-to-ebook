@@ -4,6 +4,9 @@ import {
   cleanupCandidates,
   decideCleanupWithMistral,
   deterministicJunk,
+  hasFurniture,
+  isSubsequence,
+  removeVerbatimSpans,
   splitChapterBlocks,
 } from "../src/lib/chapter-clean";
 
@@ -94,16 +97,20 @@ describe("deterministicJunk", () => {
 });
 
 describe("cleanupCandidates", () => {
-  test("never offers the middle of a chapter", () => {
+  test("offers the whole chapter, minus what is already provably furniture", () => {
+    // This was edges-only until the corpus disproved the assumption behind it:
+    // Webnovel puts `(A/N: …)` notes mid-chapter, and 223 survived a run that
+    // never showed them to the model. Protection now comes from the guards, not
+    // from asking a narrow question.
     const blocks = splitChapterBlocks(
-      Array.from({ length: 60 }, (_, i) => `<p>paragraph ${i}</p>`).join(""),
+      Array.from({ length: 60 }, (_, i) => `<p>paragraph ${i}</p>`).join("") + "<p>=====</p>",
     );
-    const candidates = cleanupCandidates(blocks);
+    const candidates = cleanupCandidates(blocks, deterministicJunk(blocks));
 
-    expect(candidates.length).toBeLessThan(blocks.blocks.length);
     expect(candidates).toContain(0);
+    expect(candidates).toContain(30);
     expect(candidates).toContain(59);
-    expect(candidates).not.toContain(30);
+    expect(candidates).not.toContain(60); // the separator, already dropped
   });
 });
 
@@ -173,20 +180,21 @@ describe("decideCleanupWithMistral", () => {
 
     const prompt = (calls[0]?.body.messages as { content: string }[])[0]!.content;
     expect(prompt).toContain("[0]");
-    expect(prompt).not.toContain("[20]"); // mid-chapter block, never offered
+    expect(prompt).toContain("[20]"); // mid-chapter blocks are offered now
+    expect(prompt).toContain("removeSpans"); // and spans are requested
     expect(decision.drop).toEqual([2]);
   });
 
   test("discards indices that were never offered", async () => {
     // The model is not trusted to invent indices: only candidates are applied.
-    stubFetch(mistralReply({ remove: [0, 20, 999], reason: "x" }));
+    stubFetch(mistralReply({ remove: [0, 999, -1], reason: "x" }));
     const blocks = splitChapterBlocks(
       Array.from({ length: 40 }, (_, i) => `<p>paragraph ${i}</p>`).join(""),
     );
     const candidates = cleanupCandidates(blocks);
 
     const decision = await decideCleanupWithMistral("Chapter 1", blocks, candidates, config);
-    expect(decision.drop).toEqual([0]);
+    expect(decision.drop).toEqual([0]); // 999 and -1 do not exist
   });
 
   test("accepts a fenced reply and refuses a broken one", async () => {
@@ -211,5 +219,89 @@ describe("decideCleanupWithMistral", () => {
     expect(error.message).toContain("401");
     expect(error.message).toContain("test-model");
     expect(error.message).not.toContain("test-key");
+  });
+});
+
+describe("spans inside a block", () => {
+  test("cuts a note out of a paragraph and leaves the rest untouched", () => {
+    const html = `<p>He closed the door behind him. (A/N: I rewrote this scene, let me know!) She waited.</p>`;
+    const { html: cleaned, removed } = removeVerbatimSpans(html, [
+      "(A/N: I rewrote this scene, let me know!)",
+    ]);
+
+    expect(removed).toBe(1);
+    expect(cleaned).toBe("<p>He closed the door behind him.  She waited.</p>");
+  });
+
+  test("matches text through HTML entities and inline markup", () => {
+    // The model sees decoded text, the block holds entities and tags.
+    const html = `<p>Thanks for reading — that&#8217;s all for now. (A/N: It&#8217;s fine!)</p>`;
+    const { html: cleaned, removed } = removeVerbatimSpans(html, ["(A/N: It’s fine!)"]);
+
+    expect(removed).toBe(1);
+    expect(cleaned).toContain("that&#8217;s all for now");
+    expect(cleaned).not.toContain("A/N");
+  });
+
+  test("ignores anything that is not verbatim — never fuzzy-matches", () => {
+    const html = `<p>The note said (A/N: buy me a coffee) and then the story went on.</p>`;
+    const { html: cleaned, removed } = removeVerbatimSpans(html, [
+      "buy me coffee", // paraphrased: must not match
+      "(A/N: totally different text)",
+    ]);
+
+    expect(removed).toBe(0);
+    expect(cleaned).toBe(html);
+  });
+
+  test("removes several spans from the same block", () => {
+    const html = `<p>One (A/N: first) two (A/N: second) three.</p>`;
+    const { html: cleaned, removed } = removeVerbatimSpans(html, [
+      "(A/N: first)",
+      "(A/N: second)",
+    ]);
+
+    expect(removed).toBe(2);
+    expect(cleaned).toBe("<p>One  two  three.</p>");
+  });
+
+  test("spans count towards the removal cap", () => {
+    // A span is one cut, so the test needs a span that is a large share of the
+    // chapter: a short chapter carrying a long note.
+    const note = `(A/N: ${"support me on patreon ".repeat(12)})`;
+    const blocks = splitChapterBlocks(`<p>He ran.</p><p>${note}</p>`);
+
+    const refused = applyCleanup(blocks, [], undefined, [note]);
+    expect(refused.refused).toMatch(/cap/);
+    expect(refused.html).toContain("He ran.");
+
+    // The same cut on a chapter where it is small goes through.
+    const long = splitChapterBlocks(`<p>${"story text ".repeat(120)}</p><p>${note}</p>`);
+    const allowed = applyCleanup(long, [], undefined, [note]);
+    expect(allowed.refused).toBeNull();
+    expect(allowed.spans).toBe(1);
+    expect(allowed.html).not.toContain("patreon");
+  });
+});
+
+describe("hasFurniture", () => {
+  test("spots the signals a cleaned chapter should no longer carry", () => {
+    expect(hasFurniture("<p>(A/N: hello)</p>")).toBe(true);
+    expect(hasFurniture("<p>Translator: Raizu</p>")).toBe(true);
+    expect(hasFurniture('<a href="https://paypal.me/Einlion">tip</a>')).toBe(true);
+    expect(hasFurniture("<p>Discord Invite: https://discord.gg/abc</p>")).toBe(true);
+    expect(hasFurniture("<p>He walked home in the rain.</p>")).toBe(false);
+    expect(hasFurniture(null)).toBe(false);
+  });
+});
+
+describe("isSubsequence", () => {
+  test("the property the whole pass rests on", () => {
+    // Deleting blocks and cutting spans both hold it; anything the model wrote
+    // would not, which is why it is asserted before every write.
+    expect(isSubsequence("<p>He ran.</p>", "<p>He ran. (A/N: buy me coffee)</p>")).toBe(true);
+    expect(isSubsequence("<p>He ran.</p>", "<p>He ran.</p>")).toBe(true);
+    expect(isSubsequence("<p>He sprinted.</p>", "<p>He ran.</p>")).toBe(false);
+    expect(isSubsequence("<p>He ran!</p>", "<p>He ran.</p>")).toBe(false);
   });
 });
