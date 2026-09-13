@@ -211,6 +211,10 @@ router.get(
         location: z.any(),
         date: z.iso.date(),
       }),
+      // A book that has never been opened has no row yet. That is a normal
+      // answer, not a server error: `executeTakeFirstOrThrow` here 500'd on every
+      // freshly exported book, which is the first thing anyone does with one.
+      404: z.object({ error: z.boolean(), message: z.string() }),
     },
   }),
   async (c) => {
@@ -226,7 +230,11 @@ router.get(
       .where("key", "=", key)
       .limit(1)
       .orderBy("date", "desc")
-      .executeTakeFirstOrThrow();
+      .executeTakeFirst();
+
+    if (!progress) {
+      throw new HTTPError("No reading progress for that book yet", { status: 404 });
+    }
 
     return c.var.res({
       date: progress.date,
