@@ -8,7 +8,7 @@ import {
   parseCoverRef,
   removeCoverFiles,
   saveCover,
-  storedCoverPath,
+  storedCoverFile,
 } from "../src/lib/cover-store";
 import { limits } from "../src/lib/limits";
 
@@ -52,19 +52,27 @@ describe("detectImageType", () => {
 });
 
 describe("cover references", () => {
-  test("a stored reference resolves inside the covers directory", () => {
-    const ref = `/api/projects/${ID}/cover.png?v=0123456789ab`;
-    const stored = storedCoverPath("/data", ref);
-    expect(stored).toBe(coverFilePath("/data", ID, "png"));
+  test("a stored reference resolves to the file on disk", async () => {
+    const root = await tempRoot();
+    const saved = await saveCover(root, ID, PNG);
+
+    const stored = await storedCoverFile(root, saved.ref);
+    expect(stored).toBe(coverFilePath(root, ID, "png"));
     expect(stored).toContain(`${path.sep}covers${path.sep}`);
+    expect(await storedCoverFile(root, `/api/projects/${ID}/cover`)).toBe(stored);
   });
 
-  test("external URLs and traversal attempts are not treated as stored covers", () => {
-    expect(storedCoverPath("/data", "https://example.com/a.png")).toBeNull();
-    expect(storedCoverPath("/data", null)).toBeNull();
-    expect(storedCoverPath("/data", "/api/projects/../../etc/cover.png")).toBeNull();
-    expect(storedCoverPath("/data", `/api/projects/${ID}/cover.${"../".repeat(4)}x`)).toBeNull();
-    expect(parseCoverRef(`/api/projects/${ID}/cover.png`)).toEqual({ projectId: ID, ext: "png" });
+  test("external URLs and traversal attempts are not treated as stored covers", async () => {
+    const root = await tempRoot();
+    await saveCover(root, ID, PNG);
+
+    expect(await storedCoverFile(root, "https://example.com/a.png")).toBeNull();
+    expect(await storedCoverFile(root, null)).toBeNull();
+    expect(await storedCoverFile(root, "/api/projects/../../etc/cover.png")).toBeNull();
+    expect(await storedCoverFile(root, `/api/projects/${ID}/cover.${"../".repeat(4)}x`)).toBeNull();
+    // A reference for a project with no file must not invent one.
+    expect(await storedCoverFile(root, `/api/projects/${"b".repeat(8)}-76ea-7145-b1ab-f07f9669e222/cover`)).toBeNull();
+    expect(parseCoverRef(`/api/projects/${ID}/cover.png`)).toEqual({ projectId: ID });
   });
 
   test("a malformed project id or extension cannot reach the filesystem", () => {
@@ -81,7 +89,7 @@ describe("saveCover", () => {
 
     expect(saved.ext).toBe("png");
     expect(saved.mime).toBe("image/png");
-    expect(saved.ref).toBe(`/api/projects/${ID}/cover.png?v=${saved.version}`);
+    expect(saved.ref).toBe(`/api/projects/${ID}/cover?v=${saved.version}`);
     expect(saved.version).toMatch(/^[0-9a-f]{12}$/);
     expect(new Uint8Array(await fs.readFile(coverFilePath(root, ID, "png")))).toEqual(PNG);
   });
