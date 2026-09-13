@@ -48,6 +48,9 @@ const LibraryList = ({
   const navigate = useNavigate();
   const scrollRef = useRef<HTMLDivElement>(null!);
   const { mode = "grid", orderBy, sort = 1 } = view || {};
+  // In a list row or the horizontal strip the cover box is ~48x64 and clips, so
+  // actions go beside the title rather than over the artwork.
+  const compact = mode === "list" || Boolean(horizontal);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -121,9 +124,7 @@ const LibraryList = ({
           to={
             item.isDirectory
               ? `/?dir=${item.key}`
-              : project
-                ? `/projects/${project.id}`
-                : `/reader/?book=${encodeURIComponent(item.key)}`
+              : `/reader/?book=${encodeURIComponent(item.key)}`
           }
           className={cn(
             "text-foreground p-4 hover:bg-secondary",
@@ -166,9 +167,8 @@ const LibraryList = ({
               className="absolute z-2 inset-0 w-full h-full object-cover"
             />
 
-            {project ? (
-              // Two actions, both visible: edit the project that made this book,
-              // or read it. The card itself opens the project.
+            {project && !compact ? (
+              // Overlaid on the cover in grid view, where there is room.
               <div className="absolute z-4 top-1 right-1 flex items-center gap-1">
               <button
                 type="button"
@@ -218,6 +218,37 @@ const LibraryList = ({
             >
               {item.metadata?.title || item.name}
             </p>
+
+            {project && compact ? (
+              <div className="flex items-center gap-1 mt-1">
+                <button
+                  type="button"
+                  aria-label={`Edit ${item.name}`}
+                  title={`Edit ${project.title}`}
+                  className="rounded border border-border/60 bg-background/90 p-1 text-foreground hover:bg-primary hover:text-primary-foreground transition-colors cursor-pointer"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    navigate(`/projects/${project.id}`);
+                  }}
+                >
+                  <PencilIcon className="size-3.5" />
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Read ${item.name}`}
+                  title={`Read ${item.name}`}
+                  className="rounded border border-border/60 bg-background/90 p-1 text-foreground hover:bg-primary hover:text-primary-foreground transition-colors cursor-pointer"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    navigate(`/reader/?book=${encodeURIComponent(item.key)}`);
+                  }}
+                >
+                  <BookOpenIcon className="size-3.5" />
+                </button>
+              </div>
+            ) : null}
 
             {mode === "list" ? (
               <>
