@@ -5,7 +5,7 @@ import { cn, getRelativeTime } from "@/lib/utils";
 import { useEffect, useMemo, useRef } from "react";
 import { Link, useNavigate } from "react-router";
 import { BlurhashCanvas } from "react-blurhash";
-import { BookOpenIcon, EyeIcon, UserIcon } from "lucide-react";
+import { BookOpenIcon, EyeIcon, PencilIcon, UserIcon } from "lucide-react";
 
 export type LibraryItem = {
   key: string;
@@ -177,21 +177,36 @@ const LibraryList = ({
           </div>
 
           {project ? (
-            // Reading is one click away, but the project is what a book is *for*
-            // here: it is where the chapters and the export live.
-            <button
-              type="button"
-              aria-label={`Read ${item.name}`}
-              title={`Read (from ${project.title})`}
-              className="absolute z-3 top-1 right-1 rounded bg-background/70 p-1.5 text-foreground/60 hover:bg-primary hover:text-primary-foreground transition-colors cursor-pointer"
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                navigate(`/reader/?book=${encodeURIComponent(item.key)}`);
-              }}
-            >
-              <BookOpenIcon className="size-4" />
-            </button>
+            // Two actions, both visible: edit the project that made this book,
+            // or read it. The card itself opens the project.
+            <div className="absolute z-3 top-1 right-1 flex items-center gap-1">
+              <button
+                type="button"
+                aria-label={`Edit ${item.name}`}
+                title={`Edit ${project.title}`}
+                className="rounded bg-background/70 p-1.5 text-foreground/60 hover:bg-primary hover:text-primary-foreground transition-colors cursor-pointer"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  navigate(`/projects/${project.id}`);
+                }}
+              >
+                <PencilIcon className="size-4" />
+              </button>
+              <button
+                type="button"
+                aria-label={`Read ${item.name}`}
+                title={`Read ${item.name}`}
+                className="rounded bg-background/70 p-1.5 text-foreground/60 hover:bg-primary hover:text-primary-foreground transition-colors cursor-pointer"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  navigate(`/reader/?book=${encodeURIComponent(item.key)}`);
+                }}
+              >
+                <BookOpenIcon className="size-4" />
+              </button>
+            </div>
           ) : null}
 
           <div className="flex justify-center items-stretch flex-col">
