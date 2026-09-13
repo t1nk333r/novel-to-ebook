@@ -205,10 +205,17 @@ export function buildCleanupMessages(chapterTitle: string, blocks: ChapterBlocks
         "Keep every block that is narration, dialogue, or a chapter heading — when in doubt, keep it.\n\n" +
         "Two ways to remove something:\n" +
         '  - "remove": whole block indices, for anything that is furniture end to end.\n' +
-        '  - "removeSpans": exact strings copied *character for character* from inside a block, for a ' +
-        "note attached to the end of a paragraph. The string must appear verbatim in the text below, " +
-        "or it will be ignored. Never paraphrase, never include the story text around it, and never " +
-        "retype punctuation — copy and paste it.\n\n" +
+        '  - "removeSpans": exact strings copied *character for character* from inside a block. This is ' +
+        "the common case and the one that is easy to miss: a note is usually tacked onto the end of a " +
+        "sentence inside a story paragraph — `… he said, closing the door. (A/N: Sorry for the delay!)` " +
+        "— or sits at the start of one. Look for `(A/N:`, `(A/N)`, `(Translator's note`, " +
+        "`(Editor's note`, `(TL note`, `(T/N`, `(ED/N`, `Please support`, `Discord Invite:`, links to " +
+        "patreon/paypal/ko-fi/discord, and 'read ahead' lines *anywhere* in the text, including " +
+        "mid-paragraph, and return each one as its own span.\n" +
+        "The string must appear verbatim in the text below, or it will be ignored. Never paraphrase, " +
+        "never include the story text around it, and never retype punctuation — copy and paste it.\n" +
+        "If a whole block is furniture, use `remove` instead; use `removeSpans` when the note shares a " +
+        "block with narration.\n\n" +
         'Reply with JSON only: {"remove": [indices], "removeSpans": ["exact text"], "reason": "one short sentence"}\n\n' +
         `Chapter: ${chapterTitle}\n\n${listing}`,
     },
