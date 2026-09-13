@@ -67,6 +67,27 @@ afterAll(() => {
 });
 
 describe.skipIf(!executablePath)("collectScrolledChapters", () => {
+  test("a heading inside the block wins over a site heading before it", async () => {
+    if (!executablePath) return;
+    const browser = await launchBrowser(executablePath);
+
+    try {
+      const tab = await browser.newPage();
+      // The shape that produced a book titled "Translating for fun": a header
+      // h1 before the content, and the chapter's own heading inside it.
+      await tab.setContent(`<!doctype html><html><body>
+        <header><h1>Translating for fun</h1></header>
+        <div class="entry-content"><h1>Glutton Berserker ch.7</h1><p>Body.</p></div>
+      </body></html>`);
+
+      const chapters = await collectScrolledChapters(tab, ".entry-content", { maxScrolls: 0 });
+      expect(chapters).toHaveLength(1);
+      expect(chapters[0]?.title).toBe("Glutton Berserker ch.7");
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+
   test("takes the id from the URL when the page holds one chapter and stamps no id", async () => {
     if (!executablePath) return;
     const browser = await launchBrowser(executablePath);

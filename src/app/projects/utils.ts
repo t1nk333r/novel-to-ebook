@@ -1043,7 +1043,17 @@ export async function collectScrolledChapters(
     }
 
     const titleFor = (el: Element) => {
-      // Nearest heading before this element, or one inside it.
+      // A heading *inside* the extracted block is the chapter's own title and
+      // wins. Preferring a heading before the block looked equivalent until a
+      // site put its tagline in a header `<h1>`, which precedes every chapter —
+      // so every chapter of the book was titled "Translating for fun" while the
+      // real title sat inside the extraction.
+      const inside = el.querySelector("h1, h2, h3");
+      const insideText = (inside?.textContent ?? "").replace(/\s+/g, " ").trim();
+      if (insideText) return insideText;
+
+      // Otherwise the nearest heading before it, which is where sites that put
+      // the title outside the content block keep it.
       let best: string | null = null;
       for (const heading of headings) {
         const position = el.compareDocumentPosition(heading);
@@ -1053,9 +1063,7 @@ export async function collectScrolledChapters(
           break;
         }
       }
-      const inside = el.querySelector("h1, h2, h3");
-      const insideText = (inside?.textContent ?? "").replace(/\s+/g, " ").trim();
-      return best || insideText || null;
+      return best || null;
     };
 
     // Site-specific but load-bearing: reader wrappers carry the chapter id
