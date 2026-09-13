@@ -107,15 +107,19 @@ export default function AddChapterModal() {
 
       if (values.type === "book") {
         const selector = values.selector;
+        const hasSelector = Boolean(
+          selector && (!Array.isArray(selector) || selector.length > 0),
+        );
 
-        if (!selector || (Array.isArray(selector) && selector.length === 0)) {
-          toast.error("A content selector is required to import a whole book");
-          return;
+        if (!hasSelector) {
+          // The server measures one against the first chapter before importing
+          // anything, and reports what it chose and how much text it extracted.
+          toast.info("No selector given — the app will work one out from the first chapter");
         }
 
         await api.POST("/projects/{projectId}/chapters/import-book", {
           params: { path: { projectId: project.id } },
-          body: { bookUrl: values.url!, selector },
+          body: { bookUrl: values.url!, ...(hasSelector ? { selector } : {}) },
         });
 
         toast.success("Importing the book — progress shows in the sidebar");

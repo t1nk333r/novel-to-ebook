@@ -331,6 +331,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{projectId}/chapters/clean": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Clean chapter bodies (AI) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        maxChapters?: number;
+                        dryRun?: boolean;
+                    };
+                };
+            };
+            responses: {
+                /** @description 200 OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: uuid */
+                            taskId: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{projectId}/chapters/import-book": {
         parameters: {
             query?: never;
@@ -355,7 +403,7 @@ export interface paths {
                     "application/json": {
                         /** Format: uri */
                         bookUrl: string;
-                        selector: string | string[];
+                        selector?: (string | string[]) | null;
                         framePath?: string[] | null;
                         maxScrolls?: number;
                         maxChapters?: number;
@@ -372,6 +420,55 @@ export interface paths {
                         "application/json": {
                             /** Format: uuid */
                             taskId: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/chapters/capture": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Store a chapter captured from a rendered page */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        title: string;
+                        html: string;
+                        url?: string | null;
+                    };
+                };
+            };
+            responses: {
+                /** @description 200 OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: number;
+                            title: string;
                         };
                     };
                 };
@@ -418,6 +515,8 @@ export interface paths {
                                     [key: string]: string;
                                 } | null;
                                 importedChapterIds?: string[] | null;
+                                cleanedChapterIds?: string[] | null;
+                                skippedCleanupChapterIds?: string[] | null;
                             } | null;
                             language: string;
                             /** Format: date-time */
@@ -443,6 +542,7 @@ export interface paths {
                     "application/json": {
                         title: string;
                         author: string;
+                        language?: string;
                     };
                 };
             };
@@ -504,6 +604,8 @@ export interface paths {
                                     [key: string]: string;
                                 } | null;
                                 importedChapterIds?: string[] | null;
+                                cleanedChapterIds?: string[] | null;
+                                skippedCleanupChapterIds?: string[] | null;
                             } | null;
                             language: string;
                             /** Format: date-time */
@@ -537,6 +639,8 @@ export interface paths {
                                 [key: string]: string;
                             } | null;
                             importedChapterIds?: string[] | null;
+                            cleanedChapterIds?: string[] | null;
+                            skippedCleanupChapterIds?: string[] | null;
                         } | null;
                         language?: string;
                     };
@@ -561,6 +665,8 @@ export interface paths {
                                     [key: string]: string;
                                 } | null;
                                 importedChapterIds?: string[] | null;
+                                cleanedChapterIds?: string[] | null;
+                                skippedCleanupChapterIds?: string[] | null;
                             } | null;
                             language: string;
                             /** Format: date-time */

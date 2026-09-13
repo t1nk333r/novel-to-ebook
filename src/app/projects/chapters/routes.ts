@@ -304,7 +304,9 @@ router.post(
       param: z.object({ projectId: z.string() }),
       json: z.object({
         bookUrl: z.url(),
-        selector: contentSelectorList,
+        // Optional: with no selector the walk measures one against the first
+        // chapter before importing anything.
+        selector: contentSelectorList.nullish(),
         framePath: z.string().min(1).array().max(limits.frames).nullish(),
         maxScrolls: z.number().int().min(1).max(limits.scrollLoads).optional(),
         maxChapters: z.number().int().min(1).max(limits.importLinks).optional(),

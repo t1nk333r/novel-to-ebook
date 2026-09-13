@@ -33,6 +33,7 @@ import {
   updateProjectConfig,
 } from "./utils";
 import EpubGenMemory from "@epubkit/epub-gen-memory";
+import { isRtl, RTL_CHAPTER_CSS } from "../../lib/language";
 import { rescanLibrary } from "../library/context";
 import path from "path";
 import db from "../../db";
@@ -70,7 +71,7 @@ router.post(
 
     const res = await db
       .insertInto("projects")
-      .values({ ...body, id: uuid() })
+      .values({ ...body, language: body.language ?? "en", id: uuid() })
       .returning("id")
       .executeTakeFirstOrThrow();
 
@@ -298,6 +299,9 @@ router.post(
           author: project.author,
           cover,
           lang: project.language || "en",
+          // Right-to-left books lay out from the page's own direction: the
+          // generator has no direction option, so the CSS carries it.
+          ...(isRtl(project.language) ? { css: RTL_CHAPTER_CSS } : {}),
           ignoreFailedDownloads: true,
           tocInTOC: true,
           // The generator reads `file://` URLs straight off the filesystem and

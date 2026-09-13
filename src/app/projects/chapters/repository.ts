@@ -1,6 +1,7 @@
 import type { Page } from "puppeteer";
 import type { Kysely } from "kysely";
 import { sql } from "kysely";
+import { suggestContentSelector } from "../selector-suggest";
 import {
   collectScrolledChapters,
   getCleanHTML,
@@ -199,6 +200,13 @@ export function queueImportScrolledChapters(payload: {
           );
         }
 
+        if (!selector) {
+          // Only reachable when the catalogue was already complete, which the
+          // early return above handles; kept so the loop below has a string.
+          ctx.setProgress(100, "Nothing to import");
+          return;
+        }
+
         let fontDecryptMap = await getProjectConfig(projectId).then(
           (config) => config.fontDecryptMap ?? null,
         );
@@ -253,13 +261,14 @@ export function queueImportScrolledChapters(payload: {
 export function queueImportBook(payload: {
   projectId: string;
   bookUrl: string;
-  selector: string | string[];
+  /** Omitted (or null) means "work it out": see the auto-selector step below. */
+  selector?: string | string[] | null;
   framePath?: string[] | null;
   maxScrolls?: number;
   maxChapters?: number;
 }) {
-  const { projectId, bookUrl, selector, framePath, maxScrolls, maxChapters } =
-    payload;
+  const { projectId, bookUrl, framePath, maxScrolls, maxChapters } = payload;
+  let selector = payload.selector;
 
   return importQueue.add(
     async (ctx) => {
@@ -283,8 +292,42 @@ export function queueImportBook(payload: {
         const importedIds = readImportedIds(await getProjectConfig(projectId));
         let index = firstUnimportedIndex(chapters, importedIds);
 
+        // No selector supplied: measure one against a real chapter page before
+        // walking anything. A wrong guess is not a small error — it is a
+        // catalogue's worth of navigation links, or of empty chapters, found
+        // hours later — so the heuristic is tried first and the model second,
+        // and neither is trusted until it has been scored.
+        if (!selector && index >= 0) {
+          const first = chapters[index] as CatalogChapter;
+          ctx.setProgress(3, `Looking for the chapter selector on ${first.title.slice(0, 30)}...`);
+
+          await page.goto(first.url, { waitUntil: "networkidle2", timeout: 30000 });
+          const suggested = await suggestContentSelector(await page.content(), {
+            useModel: true,
+          });
+
+          if (!suggested) {
+            throw new Error(
+              "Could not work out a content selector for that site — open a chapter, pick the content (Add → Link → Pick), and import the whole book with that selector",
+            );
+          }
+
+          selector = suggested.selector;
+          ctx.setProgress(
+            5,
+            `Using ${suggested.selector} (${suggested.source}: ${suggested.score.reason})`,
+          );
+        }
+
         if (index < 0) {
           ctx.setProgress(100, "Already imported");
+          return;
+        }
+
+        if (!selector) {
+          // Only reachable when the catalogue was already complete, which the
+          // early return above handles; kept so the loop below has a string.
+          ctx.setProgress(100, "Nothing to import");
           return;
         }
 

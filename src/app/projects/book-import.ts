@@ -37,9 +37,20 @@ const CHROME_CLASS = /(^|[-_])(menu|widget|sidebar|navigation|nav|breadcrumb)([-
 
 const TIME_AGO =
   "(?:\\d+\\s*(?:years?|months?|weeks?|days?|hours?|minutes?|mins?|seconds?|secs?)\\s+ago|just\\s+now)";
+
+/**
+ * Arabic serials glue relative times to titles exactly as English ones do
+ * ("الفصل 1" + "منذ ٣ أيام"), so the same cleanup is needed — with Arabic-Indic
+ * digits, whose code points are not `\\d`.
+ */
+const ARABIC_TIME_AGO =
+  "(?:منذ|قبل|مضت|مضى)\\s+(?:[0-9\\u0660-\\u0669\\u06F0-\\u06F9]+\\s*)?" +
+  "(?:ثانية|ثوان|دقيقة|دقائق|ساعة|ساعات|يومين|يوم|أيام|ايام|أسبوعين|أسبوع|أسابيع|شهرين|شهر|أشهر|اشهر|سنتين|سنة|سنوات|عام|أعوام)";
 const BRACKETED_TIME = new RegExp(`\\s*[([{]\\s*${TIME_AGO}\\s*[)\\]}]$`, "i");
 const TRAILING_TIME = new RegExp(`\\s*[-–—,:;]?\\s*${TIME_AGO}$`, "i");
 const TRAILING_SEPARATOR = /[\s–—,;:.-]+$/;
+const ARABIC_BRACKETED = new RegExp(`\\s*[([{]\\s*${ARABIC_TIME_AGO}\\s*[)\\]}]$`, "i");
+const ARABIC_TRAILING = new RegExp(`\\s*[-–—,:;]?\\s*${ARABIC_TIME_AGO}$`, "i");
 
 /**
  * Strip the relative timestamp a catalogue row glues to its title
@@ -57,7 +68,7 @@ export function cleanImportedTitle(raw: string) {
   for (let changed = true; changed; ) {
     changed = false;
 
-    for (const pattern of [BRACKETED_TIME, TRAILING_TIME]) {
+    for (const pattern of [BRACKETED_TIME, TRAILING_TIME, ARABIC_BRACKETED, ARABIC_TRAILING]) {
       if (pattern.test(title)) {
         title = title.replace(pattern, "").replace(TRAILING_SEPARATOR, "").trim();
         changed = true;

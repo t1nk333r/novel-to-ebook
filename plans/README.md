@@ -41,6 +41,7 @@ status here.
 | 030 | A chrome match must never delete the content block | P1 | S | 019, 029 | DONE (2026-09-12 — `para-comment-allowed` deleted whole chapters) |
 | 031 | Mistral as a selector-generation backend | P3 | S | 022 | DONE (2026-09-13 — `AI_PROVIDER` makes a host without the ollama sidecar usable) |
 | 032 | AI cleanup pass: keep the chapter, drop the rest | P2 | M | 031 | DONE (2026-09-13 — verified live on imported WordPress chapters) |
+| 033 | Auto-selector for whole-book imports, and Arabic/RTL | P2 | M | 028, 031 | DONE (2026-09-13 — selector measured, RTL export verified) |
 
 Status values: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED`, or `REJECTED`.
 `DONE (verified …)` means the done criteria were re-checked against the working

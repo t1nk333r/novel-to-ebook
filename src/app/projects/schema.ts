@@ -180,7 +180,13 @@ export const ProjectSchema = z.object({
 export const CreateProjectReqSchema = ProjectSchema.pick({
   title: true,
   author: true,
-});
+})
+  // Optional: a project is usable without a language, but an RTL book only
+  // exports correctly if one is set, so the field is accepted here and defaulted
+  // in the handler (a zod `.default()` would still appear as required in the
+  // generated OpenAPI schema, which the UI types read).
+  .extend({ language: z.string().min(2).max(12).optional() });
+
 
 export const CreateProjectResSchema = ProjectSchema.pick({ id: true });
 
