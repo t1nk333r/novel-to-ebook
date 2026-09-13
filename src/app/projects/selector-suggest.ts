@@ -152,9 +152,11 @@ export function tightenSelector(html: string, selector: string): string {
       }
     });
 
-    // Only descend when one child really does hold the parent's text; otherwise
-    // the parent is the body and its children are the paragraphs.
-    if (!best || bestSize / own < 0.8) break;
+    // Descend when one child holds most of the parent's text. The threshold was
+    // 0.8, which stopped one level short of the real content on the WordPress
+    // serial: `.entry-content` holds 75% of `#main`, so the import kept the
+    // post's date row ("2 December 201728 December") at the top of every chapter.
+    if (!best || bestSize / own < 0.75) break;
     current = best;
   }
 

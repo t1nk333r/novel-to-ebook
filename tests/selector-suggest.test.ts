@@ -134,3 +134,17 @@ describe("link-dominated extractions", () => {
     expect(score.reason).toMatch(/links/);
   });
 });
+
+describe("descent depth", () => {
+  test("descends through a wrapper that also has metadata", () => {
+    // The real shape: #main > .entry-content holds 75% of #main's text, the rest
+    // being a post-date row. At a 0.8 threshold the walk stopped at #main and
+    // every imported chapter began with the date.
+    const PAGE = `<div id="main">
+      <div class="post-date">2 December 201728 December 2017</div>
+      <div class="entry-content">${Array.from({ length: 30 }, (_, i) => `<p>Chapter sentence ${i}, long enough to be the bulk of the page.</p>`).join("")}</div>
+    </div>`;
+    const tightened = tightenSelector(PAGE, "#main");
+    expect(coverage(PAGE, tightened)).not.toContain("2 December");
+  });
+});
