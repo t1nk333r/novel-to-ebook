@@ -10,8 +10,8 @@ type Lookup = (
 ) => Promise<LookupAddress[]>;
 
 export class UnsafeOutboundUrlError extends HTTPError {
-  constructor() {
-    super("Outbound URL is not allowed", {
+  constructor(reason?: string) {
+    super(reason ? `Outbound URL is not allowed: ${reason}` : "Outbound URL is not allowed", {
       status: 400,
       code: "UNSAFE_OUTBOUND_URL",
     });
@@ -121,20 +121,24 @@ function parseOutboundUrl(input: string | URL) {
   try {
     url = input instanceof URL ? new URL(input) : new URL(input);
   } catch {
-    throw new UnsafeOutboundUrlError();
+    throw new UnsafeOutboundUrlError(`"${String(input).slice(0, 80)}" is not a URL`);
   }
 
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
-    throw new UnsafeOutboundUrlError();
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new UnsafeOutboundUrlError(`only http(s) URLs are allowed (got "${url.protocol}")`);
+  }
+
+  if (url.username || url.password) {
+    throw new UnsafeOutboundUrlError("URLs carrying credentials are not allowed");
   }
 
   const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
   if (!hostname || hostname === "localhost" || hostname.endsWith(".localhost")) {
-    throw new UnsafeOutboundUrlError();
+    throw new UnsafeOutboundUrlError(`"${hostname || "(empty)"}" is a local host`);
   }
 
   if (isIP(hostname) && !isPublicIp(hostname)) {
-    throw new UnsafeOutboundUrlError();
+    throw new UnsafeOutboundUrlError(`"${hostname}" is a private address`);
   }
 
   return { url, hostname };
@@ -170,11 +174,18 @@ export async function assertSafeOutboundUrl(
       verbatim: true,
     });
   } catch {
-    throw new UnsafeOutboundUrlError();
+    throw new UnsafeOutboundUrlError(`"${hostname}" does not resolve`);
   }
 
-  if (!addresses.length || addresses.some(({ address }) => !isPublicIp(address))) {
-    throw new UnsafeOutboundUrlError();
+  const privateAddresses = addresses
+    .map(({ address }) => address)
+    .filter((address) => !isPublicIp(address));
+  if (!addresses.length || privateAddresses.length) {
+    throw new UnsafeOutboundUrlError(
+      privateAddresses.length
+        ? `"${hostname}" resolves to ${privateAddresses.join(", ")} — a private address`
+        : `"${hostname}" does not resolve`,
+    );
   }
   return url;
 }
