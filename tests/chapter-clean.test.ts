@@ -305,3 +305,50 @@ describe("isSubsequence", () => {
     expect(isSubsequence("<p>He ran!</p>", "<p>He ran.</p>")).toBe(false);
   });
 });
+
+describe("cap exemption for provable furniture", () => {
+  const note = (text: string) => `<p>${text}</p>`;
+  // 80% of this chapter's characters are notes that nothing could call anything
+  // else; the cap refused them, which left a chapter made almost entirely of
+  // author's notes in the book.
+  const chapter = [
+    note("Translator: Raizu"),
+    note("(A/N: " + "sorry for the delay, real life got in the way ".repeat(4) + ")"),
+    note("Read ahead on patreon.com/raizu"),
+    note("The blade came down and she stepped aside, unhurried, watching the arc of it pass. " +
+      "She had seen that strike a hundred times before, and she knew what came next."),
+  ].join("");
+
+  test("removes provable notes even when they are most of the chapter", () => {
+    const blocks = splitChapterBlocks(chapter);
+    const certain = deterministicJunk(blocks);
+    const applied = applyCleanup(blocks, certain, undefined, [], certain);
+
+    expect(applied.refused).toBeNull();
+    expect(applied.html).toContain("she stepped aside");
+    expect(applied.html).not.toContain("A/N");
+    expect(applied.html).not.toContain("Translator: Raizu");
+  });
+
+  test("a model's judgement is still capped, over the same chapter", () => {
+    // The exemption covers provable furniture, not the model's opinion: asking
+    // to drop the prose as well is refused exactly as before.
+    const blocks = splitChapterBlocks(chapter);
+    const all = blocks.blocks.map((_, index) => index);
+    const refused = applyCleanup(blocks, all, undefined, [], deterministicJunk(blocks));
+
+    expect(refused.refused).toMatch(/cap|nothing/);
+    expect(refused.html).toContain("she stepped aside");
+  });
+
+  test("a chapter that would be emptied is refused, not blanked", () => {
+    // Emptying is a deletion decision (the classifier's), not a cleanup one.
+    const onlyNotes = [note("Translator: Raizu"), note("(A/N: all notes here)")].join("");
+    const blocks = splitChapterBlocks(onlyNotes);
+    const certain = deterministicJunk(blocks);
+    const applied = applyCleanup(blocks, certain, undefined, [], certain);
+
+    expect(applied.refused).toMatch(/nothing/);
+    expect(applied.html).toContain("Raizu");
+  });
+});

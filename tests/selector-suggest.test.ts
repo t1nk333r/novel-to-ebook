@@ -148,3 +148,22 @@ describe("descent depth", () => {
     expect(coverage(PAGE, tightened)).not.toContain("2 December");
   });
 });
+
+describe("reader direction", () => {
+  test("the UI copy and the server copy agree on which languages are RTL", async () => {
+    // Two copies on purpose — the UI bundle cannot import server values — so a
+    // test is what keeps them in step. Drift would mean an Arabic book that
+    // exports RTL but pages LTR in the reader, or the reverse.
+    const server = await import("../src/lib/language");
+    const ui = await import("../ui/src/lib/language");
+
+    const languages = ["ar", "ar-EG", "he", "fa", "ur", "ps", "sd", "ug", "ku", "en", "id", "ja", "zh-CN", "tr", "", null, undefined];
+    for (const language of languages) {
+      expect(ui.isRtl(language as string | null | undefined)).toBe(
+        server.isRtl(language as string | null | undefined),
+      );
+    }
+    expect(ui.isRtl("ar")).toBe(true);
+    expect(ui.isRtl("en")).toBe(false);
+  });
+});

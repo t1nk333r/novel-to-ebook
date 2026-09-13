@@ -110,7 +110,7 @@ export function queueCleanChapters(payload: {
           spans = decision.spans;
         }
 
-        const applied = applyCleanup(blocks, drop, undefined, spans);
+        const applied = applyCleanup(blocks, drop, undefined, spans, certain);
         refused = applied.refused;
 
         if (refused) {

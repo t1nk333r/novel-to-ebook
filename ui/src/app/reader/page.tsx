@@ -12,6 +12,7 @@ import { Loader2 } from "lucide-react";
 import Sidebar from "./components/sidebar";
 import { settingsStore } from "./lib/stores";
 import { useStore } from "zustand";
+import { isRtl } from "@/lib/language";
 import { appStore } from "@/stores/app.store";
 import { getBookData } from "@/hooks/use-offline";
 import type { OverlayRef } from "./components/overlay";
@@ -147,6 +148,15 @@ export default function ReaderPage() {
     containerRef.current?.append(view);
 
     const { book } = view;
+
+    // Paging direction: foliate reads it from the spine's
+    // `page-progression-direction`, which our EPUB generator never writes — so an
+    // Arabic book would page left-to-right. The language it *does* write says
+    // which way the book reads. Set before anything is rendered.
+    const languages = (book?.metadata as unknown as { language?: string[] })?.language ?? [];
+    if (book && languages.some((value) => isRtl(value))) {
+      (book as { dir?: string }).dir = "rtl";
+    }
 
     try {
       console.log("Fetching read progress..");

@@ -48,6 +48,16 @@ const CREDIT_LINE =
   /^\s*(translator|editor|proofread(er)?|special thanks|thanks to|tl|pr|qc|raw provider|source|chapter schedule|release schedule)\s*[:\-–]/i;
 
 /**
+ * A block that *is* an author's or translator's note. Nothing in a story opens
+ * with "(A/N:" — this is the shape the whole cleanup exists for, and treating it
+ * as provable is what lets it be removed even from a chapter it dominates.
+ * Length-gated, because a block that starts with a note and then continues into
+ * narration must stay a judgement call.
+ */
+const NOTE_BLOCK = /^\s*\(?\s*(A\/N|Author'?s?\s*note|Translator'?s?\s*note|Editor'?s?\s*note|T\/N|TL\s*note|ED\/N)\b/i;
+const NOTE_BLOCK_MAX = 800;
+
+/**
  * Split a chapter into top-level blocks.
  *
  * WordPress puts one paragraph per `<p>`; Webnovel puts everything inside a
@@ -154,6 +164,11 @@ export function deterministicJunk({ blocks }: ChapterBlocks): number[] {
     }
     // Short blocks that read as publisher furniture rather than prose.
     if (text.length <= 160 && (PROMO_PHRASE.test(text) || CREDIT_LINE.test(text))) {
+      junk.push(index);
+      return;
+    }
+    // A note in full, whatever its length, when it is a note and nothing else.
+    if (text.length <= NOTE_BLOCK_MAX && NOTE_BLOCK.test(text)) {
       junk.push(index);
       return;
     }
@@ -326,6 +341,17 @@ export function removeVerbatimSpans(html: string, spans: string[]) {
  * Exported because it is the invariant the whole pass rests on: the model
  * chooses what to drop, never what to write.
  */
+/** Index in the original of the n-th retained block. */
+function keptIndex(blocks: ChapterBlocks, removed: Set<number>, nth: number) {
+  let seen = 0;
+  for (let index = 0; index < blocks.blocks.length; index++) {
+    if (removed.has(index)) continue;
+    if (seen === nth) return index;
+    seen++;
+  }
+  return -1;
+}
+
 export function isSubsequence(text: string, source: string) {
   let cursor = 0;
   for (let i = 0; i < text.length; i++) {
@@ -344,11 +370,21 @@ export { MAX_SPAN_LENGTH, MAX_SPANS, textOffsets };
  * The guards live here rather than at the call site so every path — AI,
  * deterministic, or a `dryRun` preview — is subject to the same rules.
  */
+/** Below this much retained text, refill the chapter or delete it — never blank it. */
+export const MIN_RETAINED_CHARS = 60;
+
 export function applyCleanup(
   blocks: ChapterBlocks,
   drop: number[],
   maxRemovalShare = DEFAULT_MAX_REMOVAL_SHARE,
   spans: string[] = [],
+  /**
+   * Blocks that are furniture beyond argument (`deterministicJunk`). Their size
+   * does not count towards the cap: the cap exists to stop a *judgement* from
+   * gutting a chapter, and refusing to remove a block that is nothing but an
+   * author's note is not protection, it is a note left in the book.
+   */
+  certain: number[] = [],
 ): { html: string; dropped: number[]; spans: number; refused: string | null } {
   const total = blocks.sizes.reduce((sum, size) => sum + size, 0);
   const valid = [...new Set(drop)].filter(
@@ -367,9 +403,13 @@ export function applyCleanup(
     return applied.html;
   });
 
+  const certainSet = new Set(certain);
+  const judged =
+    valid.reduce((sum, index) => (certainSet.has(index) ? sum : sum + (blocks.sizes[index] ?? 0)), 0) +
+    spanCharacters;
   const dropped =
     valid.reduce((sum, index) => sum + (blocks.sizes[index] ?? 0), 0) + spanCharacters;
-  if (total > 0 && dropped / total > maxRemovalShare) {
+  if (total > 0 && judged / total > maxRemovalShare) {
     const share = Math.round((dropped / total) * 100);
     return {
       html: blocks.blocks.join(""),
@@ -382,6 +422,18 @@ export function applyCleanup(
   const remove = new Set(valid);
   const kept = withSpans.filter((_, index) => !remove.has(index));
   const html = kept.join("");
+
+  // A chapter whose text is gone should be deleted, not blanked: an empty entry
+  // in a book is worse than a note.
+  const retained = kept.reduce((sum, _, index) => sum + (blocks.sizes[keptIndex(blocks, remove, index)] ?? 0), 0);
+  if (total > 0 && retained < MIN_RETAINED_CHARS) {
+    return {
+      html: blocks.blocks.join(""),
+      dropped: [],
+      spans: 0,
+      refused: "would leave nothing of the chapter — it may not be a chapter at all",
+    };
+  }
 
   // Belt and braces, and the whole safety claim in one line: what gets written
   // must be a character-level subsequence of what was read. Deleting blocks and
