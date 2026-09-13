@@ -153,7 +153,11 @@ export default function ReaderPage() {
     // `page-progression-direction`, which our EPUB generator never writes — so an
     // Arabic book would page left-to-right. The language it *does* write says
     // which way the book reads. Set before anything is rendered.
-    const languages = (book?.metadata as unknown as { language?: string[] })?.language ?? [];
+    // `language` is a string here, not the array foliate's own types suggest:
+    // assuming an array threw inside the load path and the reader never
+    // finished opening the book. Accept both shapes rather than trust a cast.
+    const declared = (book?.metadata as { language?: string | string[] } | undefined)?.language;
+    const languages = Array.isArray(declared) ? declared : declared ? [declared] : [];
     if (book && languages.some((value) => isRtl(value))) {
       (book as { dir?: string }).dir = "rtl";
     }
