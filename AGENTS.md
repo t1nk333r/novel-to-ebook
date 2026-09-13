@@ -227,3 +227,19 @@ The plan set is complete as of 2026-09-12: 001–028 are all DONE. When new work
 planned, add a numbered file and a status row here rather than reviving a finished
 one — several plans were marked done in the past while failing their own criteria,
 so re-check a DONE against the working tree before relying on it.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub issues in the fork `t1nk333r/novel-to-ebook` (`origin` is upstream, so pass
+`-R` or rely on the clone's `gh repo set-default`). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
