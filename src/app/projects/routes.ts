@@ -41,11 +41,11 @@ import chapters from "./chapters/routes";
 import { HTTPError } from "../../lib/error";
 import { resolveDataRoot, resolveExportDestination } from "../../lib/export-path";
 import {
+  parseCoverRef,
   readCoverFile,
   removeCoverFiles,
   saveCover,
-  storedCoverExists,
-  storedCoverPath,
+  storedCoverFile,
 } from "../../lib/cover-store";
 import { limits } from "../../lib/limits";
 import {
@@ -251,7 +251,7 @@ router.get(
       .where("id", "=", id)
       .executeTakeFirst();
 
-    const stored = storedCoverPath(resolveDataRoot(), project?.cover);
+    const stored = await storedCoverFile(resolveDataRoot(), project?.cover);
     const file = stored ? await readCoverFile(stored) : null;
     if (!file) {
       throw new HTTPError("No cover stored for this project", {
@@ -346,6 +346,9 @@ router.post(
   }),
   async (c) => {
     let cover: string | undefined = undefined;
+    // Only a cover downloaded for this export may be deleted afterwards. A
+    // stored cover is the operator's own file and survives the export.
+    let downloadedCover: string | undefined = undefined;
 
     try {
       const { id } = c.req.valid("param");
@@ -384,16 +387,17 @@ router.post(
       if (project.cover) {
         // An uploaded cover is already a file on this disk: hand the generator
         // the path. Nothing is fetched, so no host policy applies.
-        const stored = storedCoverPath(resolveDataRoot(), project.cover);
-        if (stored) {
-          if (await storedCoverExists(stored)) {
+        if (parseCoverRef(project.cover)) {
+          const stored = await storedCoverFile(resolveDataRoot(), project.cover);
+          if (stored) {
             cover = stored;
           } else {
-            console.warn(`export: no cover embedded — ${stored} is missing`);
+            console.warn("export: no cover embedded — the stored cover file is missing");
           }
         } else {
           try {
-            cover = (await fetchImage(project.cover, "./img"))?.fullPath;
+            downloadedCover = (await fetchImage(project.cover, "./img"))?.fullPath;
+            cover = downloadedCover;
           } catch (error) {
             console.warn(
               `export: no cover embedded — ${error instanceof Error ? error.message : String(error)}`,
@@ -450,7 +454,7 @@ router.post(
     } catch (err) {
       throw err;
     } finally {
-      if (cover) fs.unlinkSync(cover);
+      if (downloadedCover) fs.unlinkSync(downloadedCover);
     }
   },
 );

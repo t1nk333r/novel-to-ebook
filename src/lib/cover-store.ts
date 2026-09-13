@@ -34,9 +34,14 @@ const COVER_DIRECTORY = "covers";
 /** Project ids are UUIDs; anything else never reaches the filesystem. */
 const PROJECT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** `/api/projects/<uuid>/cover.<ext>`, with an optional `?v=` cache version. */
+/**
+ * `/api/projects/<uuid>/cover`, with an optional `?v=` cache version. The route
+ * is a single literal segment — the format lives in the file, not the URL — but
+ * an extension is tolerated so a reference written before that rule still
+ * resolves.
+ */
 const COVER_REF =
-  /^\/api\/projects\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/cover\.([a-z]{3,4})(?:\?v=[0-9a-f]{1,32})?$/i;
+  /^\/api\/projects\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/cover(?:\.[a-z]{3,4})?(?:\?v=[0-9a-f]{1,32})?$/i;
 
 export function isCoverExt(value: string): value is CoverExt {
   return (COVER_EXTENSIONS as readonly string[]).includes(value);
@@ -85,35 +90,35 @@ export function coverFilePath(dataRoot: string, projectId: string, ext: string) 
   return path.join(coverDirectory(dataRoot), coverFileName(projectId, ext));
 }
 
-export function parseCoverRef(cover: string) {
+/** The project a cover reference belongs to, or null for an external URL. */
+export function parseCoverRef(cover: string | null | undefined) {
+  if (!cover) return null;
   const match = COVER_REF.exec(cover.trim());
   if (!match) return null;
-  const ext = match[2]?.toLowerCase();
-  if (!ext || !isCoverExt(ext)) return null;
-  return { projectId: match[1]!.toLowerCase(), ext };
+  return { projectId: match[1]!.toLowerCase() };
 }
 
-export function coverRef(projectId: string, ext: CoverExt, version: string) {
-  return `/api/projects/${projectId.toLowerCase()}/cover.${ext}?v=${version}`;
+export function coverRef(projectId: string, version: string) {
+  return `/api/projects/${projectId.toLowerCase()}/cover?v=${version}`;
 }
 
 /**
- * The on-disk path of a cover this app stores itself, or null when the value is
- * an external URL (which the export still fetches through the SSRF policy).
+ * The file this app stored for a project, or null when the reference is an
+ * external URL or the file is gone. The format is read off the directory rather
+ * than rebuilt from the reference, so a replaced cover in another format still
+ * resolves.
  */
-export function storedCoverPath(dataRoot: string, cover: string | null | undefined) {
-  if (!cover) return null;
+export async function storedCoverFile(dataRoot: string, cover: string | null | undefined) {
   const parsed = parseCoverRef(cover);
   if (!parsed) return null;
-  return coverFilePath(dataRoot, parsed.projectId, parsed.ext);
-}
 
-export async function storedCoverExists(filePath: string) {
+  const directory = coverDirectory(dataRoot);
+  const prefix = `${parsed.projectId}.`;
   try {
-    await fs.access(filePath);
-    return true;
+    const entry = (await fs.readdir(directory)).find((name) => name.startsWith(prefix));
+    return entry ? path.join(directory, entry) : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -152,7 +157,7 @@ export async function saveCover(dataRoot: string, projectId: string, bytes: Uint
   await fs.writeFile(path.join(directory, target), bytes);
 
   const version = createHash("sha256").update(bytes).digest("hex").slice(0, 12);
-  return { ext, mime: COVER_MIME[ext], version, ref: coverRef(projectId, ext, version) };
+  return { ext, mime: COVER_MIME[ext], version, ref: coverRef(projectId, version) };
 }
 
 export async function readCoverFile(filePath: string) {
