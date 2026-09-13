@@ -19,9 +19,10 @@ import { projectDetailsSchema } from "../lib/schema";
 import { useArmedDelete } from "@/hooks/use-armed-delete";
 import { isRtl, LANGUAGES } from "@/lib/language";
 import { useDeleteChapter, useUpdateProject } from "../lib/hooks";
-import { toast } from "sonner";
 import { addChapterModal } from "./add-chapter-modal";
-import { $api } from "@/lib/api";
+import { invalidateQuery, $api } from "@/lib/api";
+import { toast } from "sonner";
+import { useNavigate } from "react-router";
 import { Separator } from "@/components/ui/separator";
 import {
   Select,
@@ -30,7 +31,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useNavigate } from "react-router";
 import ChapterImportProgress from "./import-progress";
 import ChapterList from "./chapter-list";
 
@@ -165,6 +165,23 @@ function TableOfContents() {
 }
 
 function ProjectDetails() {
+  const removeProject = $api.useMutation("delete", "/projects/{id}");
+  const armedDelete = useArmedDelete();
+
+  const onDeleteProject = () =>
+    removeProject.mutate(
+      { params: { path: { id: project.id } } },
+      {
+        onSuccess() {
+          invalidateQuery("/projects");
+          toast.success("Project deleted");
+          navigate("/projects");
+        },
+        onError(error) {
+          toast.error((error as Error).message);
+        },
+      },
+    );
   const { project } = useProjectContext();
   const form = useForm<any>({ resolver: zodResolver(projectDetailsSchema as any) as any });
   const update = useUpdateProject(project.id);
@@ -269,6 +286,28 @@ function ProjectDetails() {
         {exportProject.isPending && <Loader2 className="mr-2 animate-spin" />}
         Save as EPUB
       </Button>
+
+      <Separator className="mt-16" />
+
+      <Button
+        variant={armedDelete.armed === "project" ? "destructive" : "outline"}
+        className="w-full"
+        aria-label={
+          armedDelete.armed === "project" ? "Press again to delete this project" : "Delete this project"
+        }
+        title={
+          armedDelete.armed === "project"
+            ? "Press again to delete this project and all its chapters"
+            : "Delete this project and all its chapters"
+        }
+        onClick={() => armedDelete.confirmThen("project", onDeleteProject)}
+      >
+        <Trash2Icon className="mr-2 size-4" />
+        {armedDelete.armed === "project" ? "Press again to delete" : "Delete project"}
+      </Button>
+      <FieldDescription>
+        Deletes the project and every chapter in it. This cannot be undone.
+      </FieldDescription>
     </div>
   );
 }

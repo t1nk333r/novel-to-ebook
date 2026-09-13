@@ -99,9 +99,9 @@ function ChapterItem({
       <Button
         variant={armed ? "destructive" : "ghost"}
         size="icon-sm"
-        // Visible without hover on a phone, where there is no hover at all — the
-        // control was unreachable on touch screens.
-        className="rounded-none hidden group-hover:flex max-sm:flex"
+        // Always visible: hover-only left it undiscoverable, on a phone and on a
+        // desktop alike. It is a two-press action now, so showing it is safe.
+        className="rounded-none text-muted-foreground hover:text-destructive"
         aria-label={armed ? "Press again to delete this chapter" : "Delete this chapter"}
         title={armed ? "Press again to delete this chapter" : "Delete this chapter"}
         onClick={() => onDelete(c.id)}
