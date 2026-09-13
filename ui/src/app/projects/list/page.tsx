@@ -112,7 +112,9 @@ export default function ProjectListPage() {
                 type="button"
                 aria-label={`Delete ${project.title}`}
                 title="Delete project"
-                className="absolute z-2 top-1 right-1 rounded bg-background/80 p-1.5 opacity-0 hover:bg-destructive hover:text-white transition-opacity group-hover:opacity-100 focus-visible:opacity-100 cursor-pointer"
+                // Always visible, but quiet: a hover-only control cannot be
+                // discovered on a touch screen, and this app is used on phones.
+                className="absolute z-2 top-1 right-1 rounded bg-background/70 p-1.5 text-foreground/60 hover:bg-destructive hover:text-white transition-colors cursor-pointer"
                 onClick={(event) => {
                   // The card is a link; without this, deleting also navigates.
                   event.preventDefault();
