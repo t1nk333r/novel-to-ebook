@@ -290,9 +290,20 @@ router.post(
       );
       const { fullPath, key } = destination;
 
-      cover = project.cover
-        ? (await fetchImage(project.cover, "./img"))?.fullPath
-        : undefined;
+      // A cover that cannot be fetched must not fail the export. The field holds
+      // whatever URL the operator had, and that is often a host on their own
+      // network — which the SSRF policy refuses to touch, by design. Warn, export
+      // without the cover, and leave the policy alone.
+      cover = undefined;
+      if (project.cover) {
+        try {
+          cover = (await fetchImage(project.cover, "./img"))?.fullPath;
+        } catch (error) {
+          console.warn(
+            `export: no cover embedded — ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
       const epub = await EpubGenMemory(
         {
           title: project.title,
