@@ -11,6 +11,10 @@ function readPositiveInteger(name: string, fallback: number) {
 
 export const limits = {
   requestBodyBytes: readPositiveInteger("MAX_REQUEST_BODY_BYTES", 1_000_000),
+  // Deliberately under the default body guard above: an uploaded cover must fit
+  // inside it, or the request is rejected before any route sees it. Raise both
+  // together to accept larger artwork.
+  coverBytes: readPositiveInteger("MAX_COVER_BYTES", 900_000),
   textLength: readPositiveInteger("MAX_TEXT_LENGTH", 500_000),
   selectorLength: readPositiveInteger("MAX_SELECTOR_LENGTH", 2_000),
   importLinks: readPositiveInteger("MAX_IMPORT_LINKS", 500),

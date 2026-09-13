@@ -39,7 +39,14 @@ import path from "path";
 import db from "../../db";
 import chapters from "./chapters/routes";
 import { HTTPError } from "../../lib/error";
-import { resolveExportDestination } from "../../lib/export-path";
+import { resolveDataRoot, resolveExportDestination } from "../../lib/export-path";
+import {
+  readCoverFile,
+  removeCoverFiles,
+  saveCover,
+  storedCoverExists,
+  storedCoverPath,
+} from "../../lib/cover-store";
 import { limits } from "../../lib/limits";
 import {
   assertSafeOutboundUrl,
@@ -136,6 +143,7 @@ router.delete(
   async (c) => {
     const { id } = c.req.valid("param");
     await db.deleteFrom("projects").where("id", "=", id).execute();
+    await removeCoverFiles(resolveDataRoot(), id);
     return c.body(null, 204);
   },
 );
@@ -179,6 +187,84 @@ router.put(
     return c.var.res({
       ...res,
       config: mergedConfig || null,
+    });
+  },
+);
+
+// Store an uploaded cover image
+//
+// The body is the raw image, not JSON: the browser sends the File object it
+// already has, so nothing is encoded and nothing is fetched from a URL. The
+// type is decided by the bytes, never by the filename or the declared type.
+router.post(
+  "/:id/cover",
+  openApi({
+    tags: ["Projects"],
+    summary: "Store an uploaded cover image (raw image bytes as the request body)",
+    request: { param: z.object({ id: z.string() }) },
+    responses: {
+      200: z.object({ cover: z.string() }),
+      400: { description: "Not a supported image" },
+      404: { description: "Project not found" },
+      413: { description: "Image larger than MAX_COVER_BYTES" },
+    },
+  }),
+  async (c) => {
+    const { id } = c.req.valid("param");
+    const project = await db
+      .selectFrom("projects")
+      .select("id")
+      .where("id", "=", id)
+      .executeTakeFirst();
+    if (!project) {
+      throw new HTTPError("Project not found", { status: 404, code: "PROJECT_NOT_FOUND" });
+    }
+
+    const bytes = new Uint8Array(await c.req.arrayBuffer());
+    const saved = await saveCover(resolveDataRoot(), project.id, bytes);
+    await db.updateTable("projects").set({ cover: saved.ref }).where("id", "=", id).execute();
+
+    return c.var.res({ cover: saved.ref });
+  },
+);
+
+// Get a stored cover image
+//
+// Same-origin and behind the bearer token, so the UI reads it with fetch (as
+// `OfflineImage` does) rather than an <img src>, which cannot carry a header.
+router.get(
+  "/:id/cover",
+  openApi({
+    tags: ["Projects"],
+    summary: "Get the cover image stored on the server",
+    request: { param: z.object({ id: z.string() }) },
+    responses: {
+      200: { schema: z.any(), mediaType: "image/*" },
+      404: { description: "No stored cover for this project" },
+    },
+  }),
+  async (c) => {
+    const { id } = c.req.valid("param");
+    const project = await db
+      .selectFrom("projects")
+      .select("cover")
+      .where("id", "=", id)
+      .executeTakeFirst();
+
+    const stored = storedCoverPath(resolveDataRoot(), project?.cover);
+    const file = stored ? await readCoverFile(stored) : null;
+    if (!file) {
+      throw new HTTPError("No cover stored for this project", {
+        status: 404,
+        code: "COVER_NOT_FOUND",
+      });
+    }
+
+    return c.body(file.data, 200, {
+      "Content-Type": file.mime,
+      // The reference carries a version hash, so a replaced cover is a new URL
+      // and this one can be cached for as long as the browser likes.
+      "Cache-Control": "private, max-age=31536000, immutable",
     });
   },
 );
@@ -284,7 +370,7 @@ router.post(
       }));
 
       const destination = await resolveExportDestination(
-        process.env.DATA_PATH || "./data",
+        resolveDataRoot(),
         project.title,
         config?.outDir,
       );
@@ -296,12 +382,23 @@ router.post(
       // without the cover, and leave the policy alone.
       cover = undefined;
       if (project.cover) {
-        try {
-          cover = (await fetchImage(project.cover, "./img"))?.fullPath;
-        } catch (error) {
-          console.warn(
-            `export: no cover embedded — ${error instanceof Error ? error.message : String(error)}`,
-          );
+        // An uploaded cover is already a file on this disk: hand the generator
+        // the path. Nothing is fetched, so no host policy applies.
+        const stored = storedCoverPath(resolveDataRoot(), project.cover);
+        if (stored) {
+          if (await storedCoverExists(stored)) {
+            cover = stored;
+          } else {
+            console.warn(`export: no cover embedded — ${stored} is missing`);
+          }
+        } else {
+          try {
+            cover = (await fetchImage(project.cover, "./img"))?.fullPath;
+          } catch (error) {
+            console.warn(
+              `export: no cover embedded — ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
         }
       }
       const epub = await EpubGenMemory(

@@ -11,7 +11,7 @@ import {
   SaveIcon,
   Trash2Icon,
 } from "lucide-react";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useProjectContext } from "../lib/context";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -20,7 +20,7 @@ import { useArmedDelete } from "@/hooks/use-armed-delete";
 import { isRtl, LANGUAGES } from "@/lib/language";
 import { useDeleteChapter, useUpdateProject } from "../lib/hooks";
 import { addChapterModal } from "./add-chapter-modal";
-import { invalidateQuery, $api } from "@/lib/api";
+import { API_URL, invalidateQuery, $api } from "@/lib/api";
 import { toast } from "sonner";
 import { useNavigate } from "react-router";
 import { Separator } from "@/components/ui/separator";
@@ -33,6 +33,9 @@ import {
 } from "@/components/ui/select";
 import ChapterImportProgress from "./import-progress";
 import ChapterList from "./chapter-list";
+import ProjectCover from "@/components/project-cover";
+import { apiAuthHeader } from "@/lib/api-auth";
+import { getApiToken } from "@/stores/auth.store";
 
 const tabs = [
   {
@@ -188,6 +191,42 @@ function ProjectDetails() {
   const exportProject = $api.useMutation("post", "/projects/{id}/export");
   const navigate = useNavigate();
 
+  const coverFileInput = useRef<HTMLInputElement>(null);
+  const [uploadingCover, setUploadingCover] = useState(false);
+
+  const uploadCover = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    // Clear the input so picking the same file twice still fires a change.
+    event.target.value = "";
+    if (!file) return;
+
+    setUploadingCover(true);
+    try {
+      const url = `${API_URL}/projects/${project.id}/cover`;
+      const headers: Record<string, string> = {
+        "Content-Type": file.type || "application/octet-stream",
+        ...apiAuthHeader(url, window.location.origin, getApiToken()),
+      };
+      const res = await fetch(url, { method: "POST", headers, body: file });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(body?.message || `Upload failed (${res.status})`);
+      }
+
+      const { cover } = (await res.json()) as { cover: string };
+      // The form auto-saves whatever it holds on the next keystroke, so it has
+      // to learn the new value — otherwise the old cover goes straight back.
+      form.setValue("cover", cover);
+      invalidateQuery("/projects/{id}");
+      invalidateQuery("/projects");
+      toast.success("Cover uploaded");
+    } catch (error) {
+      toast.error((error as Error).message);
+    } finally {
+      setUploadingCover(false);
+    }
+  };
+
   useEffect(() => {
     try {
       form.reset(projectDetailsSchema.parse(project));
@@ -246,6 +285,36 @@ function ProjectDetails() {
         <InputGroup>
           <InputGroupInput placeholder="https://" {...form.register("cover")} />
         </InputGroup>
+        {/* An uploaded cover needs no URL and no reachability from the server:
+            the bytes are stored with the project. That is the only option when
+            the artwork sits on a host the server cannot reach. */}
+        <div className="flex items-center gap-3">
+          <ProjectCover
+            src={form.watch("cover")}
+            alt="Cover preview"
+            className="w-14 aspect-3/4 object-cover rounded border bg-muted"
+          />
+          <div className="min-w-0">
+            <input
+              ref={coverFileInput}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              className="hidden"
+              onChange={uploadCover}
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={uploadingCover}
+              onClick={() => coverFileInput.current?.click()}
+            >
+              {uploadingCover ? <Loader2 className="size-4 animate-spin" /> : null}
+              Upload from this device
+            </Button>
+            <FieldDescription>Stored on the server — no URL needed.</FieldDescription>
+          </div>
+        </div>
       </Field>
       <Field>
         <FieldLabel>Language</FieldLabel>

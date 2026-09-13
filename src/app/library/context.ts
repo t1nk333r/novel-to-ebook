@@ -1,4 +1,5 @@
 import { scanLibrary, type LibraryItems } from "./utils";
+import { resolveDataRoot } from "../../lib/export-path";
 
 let library: LibraryItems = [];
 let scanController: AbortController | null = null;
@@ -24,7 +25,7 @@ export async function rescanLibrary(): Promise<ScanResult> {
     generation = ++scanGeneration;
     scanController = controller;
 
-    const res = await scanLibrary([process.env.DATA_PATH || "./data"], {
+    const res = await scanLibrary([resolveDataRoot()], {
       signal: controller.signal,
     });
 

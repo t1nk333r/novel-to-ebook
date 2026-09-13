@@ -1,3 +1,4 @@
+import ProjectCover from "@/components/project-cover";
 import BackButton from "@/components/ui/back-button";
 import {
   InputGroup,
@@ -97,16 +98,11 @@ export default function ProjectListPage() {
                 <p className="text-sm mt-2 opacity-50">{project.author}</p>
               </div>
 
-              {project.cover ? (
-                <img
-                  src={project.cover}
-                  alt={project.title}
-                  className="absolute z-1 inset-0 w-full h-full object-cover rounded overflow-hidden shadow"
-                  onError={(e) => {
-                    e.currentTarget.style.display = "none";
-                  }}
-                />
-              ) : null}
+              <ProjectCover
+                src={project.cover}
+                alt={project.title}
+                className="absolute z-1 inset-0 w-full h-full object-cover rounded overflow-hidden shadow"
+              />
 
               <button
                 type="button"

@@ -2,6 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { HTTPError } from "./error";
 
+/** The directory generated files are written under (DATA_PATH, default ./data). */
+export function resolveDataRoot() {
+  return process.env.DATA_PATH || "./data";
+}
+
 export type ExportDestination = {
   directory: string;
   fullPath: string;
